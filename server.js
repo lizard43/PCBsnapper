@@ -75,14 +75,11 @@ function updateXYZFromText(text) {
 
 async function runQueued(fn) {
   const run = commandQueue.then(fn, fn);
-
-  // Keep the queue alive even if one command fails.
-  commandQueue = run.catch(() => {});
-
+  commandQueue = run.catch(() => { });
   return run;
 }
 
-function sendLineRaw(line, lineEnding = "\n") {
+function sendLineRaw(line, lineEnding = "\n", timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
     if (dryRun) {
       console.log("[DRY RUN]", line);
@@ -117,7 +114,7 @@ function sendLineRaw(line, lineEnding = "\n") {
 
     const timer = setTimeout(() => {
       fail(new Error(`Timeout waiting for ok: ${line}`));
-    }, 15000);
+    }, timeoutMs);
 
     const onData = data => {
       const text = String(data).trim();
@@ -127,8 +124,8 @@ function sendLineRaw(line, lineEnding = "\n") {
       lines.push(text);
       updateXYZFromText(text);
 
-      // Wait for the command-complete ok. For M114 this means we collect both
-      // the X/Y/Z line and the following ok instead of resolving early.
+      // Wait for command-complete ok. For M114 this collects both the X/Y/Z line
+      // and the following ok instead of resolving early.
       if (text.toLowerCase().startsWith("ok")) {
         finish();
       }
@@ -144,11 +141,19 @@ function sendLineRaw(line, lineEnding = "\n") {
   });
 }
 
-function sendLine(line, lineEnding = "\n") {
-  return runQueued(() => sendLineRaw(line, lineEnding));
+function sendLine(line, lineEnding = "\n", timeoutMs = 15000) {
+  return runQueued(() => sendLineRaw(line, lineEnding, timeoutMs));
+}
+
+async function waitForMoves(lineEnding = "\n") {
+  await sendLine("M400", lineEnding, 120000);
 }
 
 async function queryPosition(lineEnding = "\n") {
+  if (dryRun) {
+    return xyz;
+  }
+
   const text = await sendLine("M114", lineEnding);
   const pos = updateXYZFromText(text);
 
@@ -170,7 +175,13 @@ async function moveAbsolute(target, lineEnding = "\n") {
   await sendLine("G90", lineEnding);
   await sendLine(parts.join(" "), lineEnding);
 
-  // Ground truth comes from Marlin, not from the target we requested.
+  if (dryRun) {
+    if (target.x !== undefined) xyz.x = Number(target.x);
+    if (target.y !== undefined) xyz.y = Number(target.y);
+    if (target.z !== undefined) xyz.z = Number(target.z);
+    return xyz;
+  }
+
   return await queryPosition(lineEnding);
 }
 
@@ -193,7 +204,11 @@ async function moveRelative(axis, distance, feed, lineEnding = "\n") {
   await sendLine(`G1 ${axis}${Number(distance).toFixed(3)} F${Number(feed)}`, lineEnding);
   await sendLine("G90", lineEnding);
 
-  // Ground truth comes from Marlin after the move completes.
+  if (dryRun) {
+    xyz[axis.toLowerCase()] += Number(distance);
+    return xyz;
+  }
+
   return await queryPosition(lineEnding);
 }
 
@@ -226,7 +241,6 @@ app.post("/api/printer/connect", async (req, res) => {
       return res.json(makePrinterState());
     }
 
-    // Close stale port first.
     if (printerPort?.isOpen) {
       await new Promise(resolve => printerPort.close(() => resolve()));
     }
@@ -252,8 +266,6 @@ app.post("/api/printer/connect", async (req, res) => {
       new ReadlineParser({ delimiter: "\n" })
     );
 
-    // Raw serial logging. This is only logging; command responses are handled
-    // by sendLineRaw's temporary listener.
     printerParser.on("data", data => {
       const text = String(data).trim();
 
@@ -271,8 +283,7 @@ app.post("/api/printer/connect", async (req, res) => {
     console.log("[INFO] Serial opened");
     console.log("[INFO] Waiting for printer boot/reset...");
 
-    // Most Marlin USB serial boards reset on port open. After this, M114 is
-    // firmware ground truth, but the firmware may no longer know physical Z.
+    // Most Marlin USB serial boards reset on port open.
     needsHome = true;
     await sleep(5000);
 
@@ -291,7 +302,7 @@ app.post("/api/printer/connect", async (req, res) => {
     res.json(makePrinterState({
       position: pos,
       warning: needsHome
-        ? "Printer reset on serial open. Coordinates are firmware-reported, but physical position should be re-homed before trusted motion."
+        ? "Printer reset on serial open. Use Safe before X/Y motion if a camera/lens is installed."
         : null
     }));
 
@@ -410,14 +421,11 @@ app.post("/api/printer/jog", async (req, res) => {
         ? numberOr(feedrateZ, 300)
         : numberOr(feedrateXY, 3000);
 
-    // Enforce safe Z before any horizontal move using printer-reported M114.
-    // If the board reset and needsHome is true, this reported Z may not match
-    // physical Z, so block horizontal moves until Home has been run.
     if ((ax === "X" || ax === "Y") && needsHome) {
       return res.status(409).json({
         ...makePrinterState(),
         ok: false,
-        error: "Printer reset since last home. Press Home before X/Y jogging."
+        error: "Printer reset since last Safe/Home. Press Safe before X/Y jogging."
       });
     }
 
@@ -438,39 +446,90 @@ app.post("/api/printer/jog", async (req, res) => {
   }
 });
 
-app.post("/api/printer/home", async (req, res) => {
+// Full printer home. This sends real G28 with no axis arguments.
+// WARNING: with a long camera/lens installed, this can drive Z toward bed/home.
+app.post("/api/printer/home-all", async (req, res) => {
+  try {
+    const { lineEnding } = req.body;
+
+    await sendLine("G90", lineEnding);
+    await sendLine("G28", lineEnding);
+
+    if (dryRun) {
+      xyz = { x: 0, y: 0, z: 0 };
+    }
+
+    const pos = await queryPosition(lineEnding);
+    needsHome = false;
+
+    res.json(makePrinterState({ xyz: pos }));
+
+  } catch (err) {
+    res.status(500).json({
+      ...makePrinterState(),
+      ok: false,
+      error: err.message
+    });
+  }
+});
+
+// Camera-safe home. This never homes Z and never commands Z downward.
+// It declares the current physical Z as settings.safeZ, then homes X/Y only.
+app.post("/api/printer/home-safe", async (req, res) => {
   try {
     const {
       safeZ,
+      feedrateXY,
       feedrateZ,
       lineEnding
     } = req.body;
 
     const z = safeZOr(safeZ);
     const feedZ = numberOr(feedrateZ, 300);
+    const feedXY = numberOr(feedrateXY, 3000);
 
     await sendLine("G90", lineEnding);
 
-    // If the printer just reset, Marlin's Z number may not match physical Z.
-    // Do not make an absolute Z move from an untrusted post-reset coordinate.
-    if (!needsHome) {
-      await raiseToSafeZ(z, feedZ, lineEnding);
-    } else {
-      console.log("[INFO] Skipping pre-home safe-Z move because coordinates need homing");
-    }
+    await sendLine(`G1 Z${z.toFixed(3)} F${feedZ}`, lineEnding, 120000);
+    await waitForMoves(lineEnding);
 
-    // Real XY homing using endstops. This does not intentionally home Z.
-    await sendLine("G28 X Y", lineEnding);
+    await sendLine(`G1 X0.000 Y0.000 F${feedXY}`, lineEnding, 120000);
+    await waitForMoves(lineEnding);
 
-    // Once XY has been physically referenced, ask printer for reported coords.
-    let pos = await queryPosition(lineEnding);
+    const pos = await queryPosition(lineEnding);
     needsHome = false;
 
-    // Keep the working camera height convention: after XY home, raise to safe Z
-    // if the printer reports below it. This is now based on fresh M114.
-    if (pos.z < z) {
-      pos = await moveAbsolute({ z, feed: feedZ }, lineEnding);
+    res.json(makePrinterState({ xyz: pos }));
+
+  } catch (err) {
+    res.status(500).json({
+      ...makePrinterState(),
+      ok: false,
+      error: err.message
+    });
+  }
+});
+
+// Backward compatible route for older app.js versions. Same behavior as Safe.
+app.post("/api/printer/home", async (req, res) => {
+  try {
+    const {
+      safeZ,
+      lineEnding
+    } = req.body;
+
+    const z = safeZOr(safeZ);
+
+    await sendLine("G90", lineEnding);
+    await sendLine(`G92 Z${z.toFixed(3)}`, lineEnding);
+    await sendLine("G28 X Y", lineEnding);
+
+    if (dryRun) {
+      xyz = { x: 0, y: 0, z };
     }
+
+    const pos = await queryPosition(lineEnding);
+    needsHome = false;
 
     res.json(makePrinterState({ xyz: pos }));
 

@@ -10,35 +10,40 @@
 
 <body>
   <header class="toolbar">
-    <button id="homePrinterBtn" disabled title="Move to safe Z, then home X/Y">Home</button>
+    <div class="toolbar-main">
+      <button id="homeAllBtn" disabled title="Real G28 home for X/Y/Z">G28</button>
+      <button id="homeSafeBtn" disabled title="Set current Z as safe height, then home X/Y only">Safe</button>
 
-    <div class="jog-controls">
-      <button class="jog-btn" data-axis="X" data-dir="1">X+</button>
-      <button class="jog-btn" data-axis="X" data-dir="-1">X-</button>
-      <button class="jog-btn" data-axis="Y" data-dir="1">Y+</button>
-      <button class="jog-btn" data-axis="Y" data-dir="-1">Y-</button>
-      <button class="jog-btn" data-axis="Z" data-dir="1">Z+</button>
-      <button class="jog-btn" data-axis="Z" data-dir="-1">Z-</button>
+      <div class="jog-controls">
+        <button class="jog-btn" data-axis="X" data-dir="1" disabled>X+</button>
+        <button class="jog-btn" data-axis="X" data-dir="-1" disabled>X-</button>
+        <button class="jog-btn" data-axis="Y" data-dir="1" disabled>Y+</button>
+        <button class="jog-btn" data-axis="Y" data-dir="-1" disabled>Y-</button>
+        <button class="jog-btn" data-axis="Z" data-dir="1" disabled>Z+</button>
+        <button class="jog-btn" data-axis="Z" data-dir="-1" disabled>Z-</button>
 
-      <select id="jogStepSelect">
-        <option value="0.1">0.1mm</option>
-        <option value="1">1mm</option>
-        <option value="5">5mm</option>
-        <option value="10" selected>10mm</option>
-        <option value="25">25mm</option>
-      </select>
+        <select id="jogStepSelect" disabled>
+          <option value="0.1">0.1mm</option>
+          <option value="1">1mm</option>
+          <option value="5">5mm</option>
+          <option value="10" selected>10mm</option>
+          <option value="25">25mm</option>
+          <option value="50">50mm</option>
+          <option value="100">100mm</option>
+        </select>
+      </div>
+
+      <button id="connectPrinterBtn">Connect</button>
+      <button id="snapBtn" disabled>Snapshot</button>
+
+      <button id="settingsBtn" class="settings-btn" title="Settings" aria-label="Settings">⚙</button>
     </div>
 
-    <button id="connectPrinterBtn">Connect</button>
-    <button id="snapBtn" disabled>Snapshot</button>
-
-    <span id="printerStatus">printer: disconnected</span>
-    <span id="xyzStatus">X0.00 Y0.00 Z0.00</span>
-    <span id="status">starting...</span>
-
-    <button id="settingsBtn" class="settings-btn" title="Settings" aria-label="Settings">
-      <span class="gear-icon"></span>
-    </button>
+    <div class="toolbar-status">
+      <span id="printerStatus">printer: disconnected</span>
+      <span id="xyzStatus">X0.00 Y0.00 Z0.00</span>
+      <span id="status">starting...</span>
+    </div>
   </header>
 
   <main class="viewer-wrap">

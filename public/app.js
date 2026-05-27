@@ -4,7 +4,8 @@ const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 
 const connectPrinterBtn = document.getElementById("connectPrinterBtn");
-const homePrinterBtn = document.getElementById("homePrinterBtn");
+const homeAllBtn = document.getElementById("homeAllBtn");
+const homeSafeBtn = document.getElementById("homeSafeBtn");
 const printerStatus = document.getElementById("printerStatus");
 const xyzStatus = document.getElementById("xyzStatus");
 const jogStepSelect = document.getElementById("jogStepSelect");
@@ -364,7 +365,9 @@ async function takeSnapshot() {
 }
 
 function setMotionButtonsEnabled(enabled) {
-  if (homePrinterBtn) homePrinterBtn.disabled = !enabled;
+  if (homeAllBtn) homeAllBtn.disabled = !enabled;
+  if (homeSafeBtn) homeSafeBtn.disabled = !enabled;
+  if (jogStepSelect) jogStepSelect.disabled = !enabled;
 
   document.querySelectorAll(".jog-btn").forEach(btn => {
     btn.disabled = !enabled;
@@ -401,7 +404,7 @@ function setPrinterUi(state) {
     printerStatus.textContent = dry
       ? "printer: dry run"
       : needsHome
-        ? `printer: ${portLabel} — needs home`
+        ? `printer: ${portLabel} — needs Safe`
         : `printer: ${portLabel}`;
     connectPrinterBtn.textContent = "Disconnect";
     connectPrinterBtn.disabled = false;
@@ -432,6 +435,7 @@ async function refreshPrinterStatus() {
     printerStatus.textContent = "printer: unknown";
     connectPrinterBtn.textContent = "Connect";
     connectPrinterBtn.disabled = false;
+    setMotionButtonsEnabled(false);
   }
 }
 
@@ -485,7 +489,9 @@ async function connectPrinter() {
 async function disconnectPrinter() {
   try {
     connectPrinterBtn.disabled = true;
-    if (homePrinterBtn) homePrinterBtn.disabled = true;
+    if (homeAllBtn) homeAllBtn.disabled = true;
+    if (homeSafeBtn) homeSafeBtn.disabled = true;
+    if (jogStepSelect) jogStepSelect.disabled = true;
     printerStatus.textContent = "printer: disconnecting...";
 
     const res = await fetch("/api/printer/disconnect", {
@@ -513,7 +519,46 @@ async function togglePrinterConnection() {
   }
 }
 
-async function homePrinter() {
+async function homeAllPrinter() {
+  try {
+    await refreshPrinterStatus();
+
+    if (!printerConnected) {
+      throw new Error("Printer is not connected");
+    }
+
+    setStatus("sending full G28 XYZ home...");
+
+    const res = await fetch("/api/printer/home-all", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        lineEnding: settings.printer.lineEnding
+      })
+    });
+
+    const json = await res.json();
+
+    if (!json.ok) throw new Error(json.error);
+
+    setPrinterUi(json);
+
+    const p = json.xyz || {};
+    setStatus(
+      `G28 complete: X${Number(p.x || 0).toFixed(2)} ` +
+      `Y${Number(p.y || 0).toFixed(2)} ` +
+      `Z${Number(p.z || 0).toFixed(2)}`
+    );
+  } catch (err) {
+    console.error(err);
+    setStatus("G28 failed: " + err.message);
+    await refreshPrinterStatus();
+  }
+}
+
+async function homeSafePrinter() {
   try {
     await refreshPrinterStatus();
 
@@ -523,9 +568,9 @@ async function homePrinter() {
 
     const safeZ = safePrinterZ();
 
-    setStatus(`homing to X0 Y0 Z${safeZ.toFixed(2)}...`);
+    setStatus(`Safe: set current Z as ${safeZ.toFixed(2)}, then home X/Y...`);
 
-    const res = await fetch("/api/printer/home", {
+    const res = await fetch("/api/printer/home-safe", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -542,26 +587,17 @@ async function homePrinter() {
 
     if (!json.ok) throw new Error(json.error);
 
-    setPrinterUi({
-      connected: true,
-      opening: false,
-      dryRun: json.dryRun,
-      xyz: json.xyz,
-      printerInfo: {
-        comPort: settings.printer.comPort,
-        baudRate: settings.printer.baudRate
-      }
-    });
+    setPrinterUi(json);
 
     const p = json.xyz || {};
     setStatus(
-      `home complete: X${Number(p.x || 0).toFixed(2)} ` +
+      `Safe complete: X${Number(p.x || 0).toFixed(2)} ` +
       `Y${Number(p.y || 0).toFixed(2)} ` +
       `Z${Number(p.z || 0).toFixed(2)}`
     );
   } catch (err) {
     console.error(err);
-    setStatus("home failed: " + err.message);
+    setStatus("Safe failed: " + err.message);
     await refreshPrinterStatus();
   }
 }
@@ -596,16 +632,7 @@ async function jog(axis, direction) {
 
     if (!json.ok) throw new Error(json.error);
 
-    setPrinterUi({
-      connected: true,
-      opening: false,
-      dryRun: false,
-      xyz: json.xyz,
-      printerInfo: {
-        comPort: settings.printer.comPort,
-        baudRate: settings.printer.baudRate
-      }
-    });
+    setPrinterUi(json);
 
     const p = json.xyz || {};
     setStatus(
@@ -623,7 +650,8 @@ async function jog(axis, direction) {
 
 snapBtn.addEventListener("click", takeSnapshot);
 connectPrinterBtn.addEventListener("click", togglePrinterConnection);
-homePrinterBtn.addEventListener("click", homePrinter);
+homeAllBtn.addEventListener("click", homeAllPrinter);
+homeSafeBtn.addEventListener("click", homeSafePrinter);
 
 document.querySelectorAll(".jog-btn").forEach(btn => {
   btn.addEventListener("click", () => {
@@ -679,5 +707,6 @@ window.addEventListener("focus", refreshPrinterStatus);
 
 setupTabs();
 loadSettings();
+setMotionButtonsEnabled(false);
 startCamera();
 refreshPrinterStatus();
