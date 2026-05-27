@@ -251,14 +251,18 @@
           </label>
 
           <label>
-            Tiles X count
-            <input id="captureTilesX" type="number" min="1" step="1" required>
+            Far diagonal corner X
+            <input id="captureFarX" type="number" step="0.01" required>
           </label>
 
           <label>
-            Tiles Y count
-            <input id="captureTilesY" type="number" min="1" step="1" required>
+            Far diagonal corner Y
+            <input id="captureFarY" type="number" step="0.01" required>
           </label>
+
+          <div id="captureTileCountPreview" class="capture-count-preview wide-field">
+            Calculated tile count will appear here.
+          </div>
 
           <label class="checkbox-row capture-checkbox-row">
             <input id="captureSnakeRaster" type="checkbox">
@@ -272,7 +276,7 @@
         </div>
 
         <p class="capture-note">
-          Start position is the current printer X/Y. Tile numbers in the filename are zero-based.
+          Start position is the current printer X/Y. The displayed count previews from Safe X/Y until the scan starts, then it recalculates from the actual printer X/Y. Tile numbers and image numbers are zero-based.
         </p>
 
         <footer class="modal-actions">

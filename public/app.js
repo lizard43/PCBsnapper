@@ -196,8 +196,7 @@ function loadSettingsForm() {
   document.getElementById("setTilesX").value = settings.raster.tilesX;
   document.getElementById("setTilesY").value = settings.raster.tilesY;
   document.getElementById("setSnakeRaster").checked = settings.raster.snakeRaster;
-  document.getElementById("setFilenamePattern").value =
-    normalizeRasterFilenamePattern(settings.raster.filenamePattern);
+  document.getElementById("setFilenamePattern").value = settings.raster.filenamePattern;
 
   document.getElementById("setLogSerial").checked = settings.debug.logSerialTraffic;
   document.getElementById("setDryRun").checked = settings.debug.dryRun;
@@ -247,7 +246,7 @@ function readSettingsForm() {
   settings.raster.snakeRaster =
     document.getElementById("setSnakeRaster").checked;
   settings.raster.filenamePattern =
-    normalizeRasterFilenamePattern(document.getElementById("setFilenamePattern").value);
+    document.getElementById("setFilenamePattern").value.trim() || "{project}_tile_x{X}_y{Y}.jpg";
 
   settings.debug.logSerialTraffic =
     document.getElementById("setLogSerial").checked;
@@ -273,7 +272,7 @@ function openCaptureDialog() {
   captureTilesX.value = settings.raster.tilesX;
   captureTilesY.value = settings.raster.tilesY;
   captureSnakeRaster.checked = settings.raster.snakeRaster;
-  captureFilenamePattern.value = normalizeRasterFilenamePattern(settings.raster.filenamePattern);
+  captureFilenamePattern.value = settings.raster.filenamePattern || "{project}_tile_x{X}_y{Y}.jpg";
 
   captureOverlay.classList.remove("hidden");
   captureProjectName.focus();
@@ -295,18 +294,6 @@ function sanitizeToken(value, fallback = "project") {
   return safe || fallback;
 }
 
-function normalizeRasterFilenamePattern(value) {
-  const raw = String(value || "").trim();
-
-  // Upgrade the old pre-project default so saved localStorage/settings do not
-  // keep opening the dialog as tile_x{X}_y{Y}.jpg.
-  if (!raw || raw === "tile_x{X}_y{Y}.jpg") {
-    return "{project}_tile_x{X}_y{Y}.jpg";
-  }
-
-  return raw;
-}
-
 function readCaptureForm() {
   const project = sanitizeToken(captureProjectName.value, "project");
 
@@ -317,13 +304,11 @@ function readCaptureForm() {
     tilesX: Math.max(1, intValue(captureTilesX.value, settings.raster.tilesX)),
     tilesY: Math.max(1, intValue(captureTilesY.value, settings.raster.tilesY)),
     snakeRaster: !!captureSnakeRaster.checked,
-    filenamePattern: normalizeRasterFilenamePattern(captureFilenamePattern.value)
+    filenamePattern: captureFilenamePattern.value.trim() || "{project}_tile_x{X}_y{Y}.jpg"
   };
 }
 
-function makeRasterFilename(pattern, project, tileX, tileY, imageIndex) {
-  const index = Math.max(0, intValue(imageIndex, 0));
-
+function makeRasterFilename(pattern, project, tileX, tileY) {
   const replacements = {
     project,
     X: String(tileX),
@@ -331,21 +316,13 @@ function makeRasterFilename(pattern, project, tileX, tileY, imageIndex) {
     x: String(tileX),
     y: String(tileY),
     col: String(tileX),
-    row: String(tileY),
-    n: String(index),
-    index: String(index)
+    row: String(tileY)
   };
 
-  let name = normalizeRasterFilenamePattern(pattern).replace(
-    /\{(project|X|Y|x|y|col|row|n|index)\}/g,
+  let name = String(pattern || "{project}_tile_x{X}_y{Y}.jpg").replace(
+    /\{(project|X|Y|x|y|col|row)\}/g,
     (all, key) => replacements[key] ?? all
   );
-
-  // Support {nn}, {nnn}, {nnnn}, etc. The number of n characters is
-  // the zero-padding width. Example: {nnnn} -> 0000, 0001, 0002...
-  name = name.replace(/\{(n{2,})\}/g, (all, ns) => {
-    return String(index).padStart(ns.length, "0");
-  });
 
   name = sanitizeToken(name, `${project}_tile_x${tileX}_y${tileY}.jpg`);
 
@@ -944,8 +921,7 @@ async function startRasterCapture(event) {
         captureSettings.filenamePattern,
         captureSettings.project,
         tile.tileX,
-        tile.tileY,
-        i
+        tile.tileY
       );
 
       setStatus(`tile ${stepText}: saving ${name}...`);
