@@ -141,6 +141,12 @@ select {
   background: #3a3a3a;
 }
 
+.grid-btn.active {
+  background: #45535a;
+  border-color: #7fa6b8;
+  color: #fff;
+}
+
 /* =========================
    Viewer / COM log split
    ========================= */
@@ -238,13 +244,51 @@ body.resizing-log {
 }
 
 /* =========================
-   Crosshair
+   Grid / Crosshair
    ========================= */
+
+.grid-overlay {
+  position: absolute;
+  pointer-events: none;
+  z-index: 2;
+  background-image:
+    linear-gradient(to right, rgba(120, 210, 255, 0.35) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(120, 210, 255, 0.35) 1px, transparent 1px);
+  background-size: 10% 10%;
+  background-position: left top;
+  border: 1px solid rgba(120, 210, 255, 0.5);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+.grid-overlay::before,
+.grid-overlay::after {
+  content: "";
+  position: absolute;
+  background: rgba(120, 210, 255, 0.55);
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.65);
+}
+
+.grid-overlay::before {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-0.5px);
+}
+
+.grid-overlay::after {
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  transform: translateY(-0.5px);
+}
 
 .crosshair-overlay {
   position: absolute;
   inset: 0;
   pointer-events: none;
+  z-index: 3;
 }
 
 .crosshair-line {

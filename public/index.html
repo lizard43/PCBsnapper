@@ -35,6 +35,7 @@
 
       <button id="connectPrinterBtn">Connect</button>
       <button id="snapBtn" disabled>Snapshot</button>
+      <button id="gridBtn" class="grid-btn" type="button" aria-pressed="false" title="Show UI grid overlay">Grid</button>
 
       <button id="settingsBtn" class="settings-btn" title="Settings" aria-label="Settings">⚙</button>
     </div>
@@ -50,6 +51,8 @@
     <section id="viewerWrap" class="viewer-wrap">
       <div class="video-stage">
         <video id="video" autoplay playsinline muted></video>
+
+        <div id="gridOverlay" class="grid-overlay hidden" aria-hidden="true"></div>
 
         <div class="crosshair-overlay" aria-hidden="true">
           <div class="crosshair-line crosshair-v"></div>

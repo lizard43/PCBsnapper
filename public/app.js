@@ -3,6 +3,8 @@ const statusEl = document.getElementById("status");
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const viewerWrap = document.getElementById("viewerWrap");
+const gridBtn = document.getElementById("gridBtn");
+const gridOverlay = document.getElementById("gridOverlay");
 const comLogPane = document.getElementById("comLogPane");
 const comLog = document.getElementById("comLog");
 const logResizeHandle = document.getElementById("logResizeHandle");
@@ -26,15 +28,18 @@ let cameraDeviceId = null;
 let settings = null;
 let printerConnected = false;
 let printerOpening = false;
+let cameraStatusText = "cam: disconnected";
 
 const STORAGE_KEY_SETTINGS = "pcbsnapper.settings";
 const STORAGE_KEY_LOG_HEIGHT = "pcbsnapper.comLogHeight";
+const STORAGE_KEY_GRID_VISIBLE = "pcbsnapper.gridVisible";
 const DEFAULT_LOG_LINES = 4;
 const LOG_POLL_MS = 500;
 
 let lastLogSeq = 0;
 let logPollTimer = null;
 let logDragging = false;
+let gridVisible = localStorage.getItem(STORAGE_KEY_GRID_VISIBLE) === "1";
 
 const VIDEO_MODES = [
   { label: "3840 × 2160 / 4K", width: 3840, height: 2160 },
@@ -58,6 +63,8 @@ const DEFAULT_SETTINGS = {
     lineEnding: "\\n",
     units: "mm",
     safeZ: 100.0,
+    safeX: 0.0,
+    safeY: 0.0,
     feedrateXY: 3000,
     feedrateZ: 300,
     settleDelayMs: 2000
@@ -75,6 +82,13 @@ const DEFAULT_SETTINGS = {
     dryRun: true
   }
 };
+
+function updateToolbarStatus() {
+  if (!printerStatus) return;
+
+  const printerText = printerStatus.dataset.baseText || "printer: disconnected";
+  printerStatus.textContent = `${printerText} · ${cameraStatusText}`;
+}
 
 function clone(obj) {
   return JSON.parse(JSON.stringify(obj));
@@ -158,6 +172,8 @@ function loadSettingsForm() {
   document.getElementById("setLineEnding").value = settings.printer.lineEnding;
   document.getElementById("setUnits").value = settings.printer.units;
   document.getElementById("setSafeZ").value = settings.printer.safeZ;
+  document.getElementById("setSafeX").value = settings.printer.safeX;
+  document.getElementById("setSafeY").value = settings.printer.safeY;
   document.getElementById("setFeedXY").value = settings.printer.feedrateXY;
   document.getElementById("setFeedZ").value = settings.printer.feedrateZ;
   document.getElementById("setSettleDelay").value = settings.printer.settleDelayMs;
@@ -195,6 +211,10 @@ function readSettingsForm() {
     document.getElementById("setUnits").value;
   settings.printer.safeZ =
     clampNumber(document.getElementById("setSafeZ").value, 0, 1000, DEFAULT_SETTINGS.printer.safeZ);
+  settings.printer.safeX =
+    clampNumber(document.getElementById("setSafeX").value, 0, 1000, DEFAULT_SETTINGS.printer.safeX);
+  settings.printer.safeY =
+    clampNumber(document.getElementById("setSafeY").value, 0, 1000, DEFAULT_SETTINGS.printer.safeY);
   settings.printer.feedrateXY =
     intValue(document.getElementById("setFeedXY").value, 3000);
   settings.printer.feedrateZ =
@@ -228,6 +248,82 @@ function openSettings() {
 
 function closeSettings() {
   settingsOverlay.classList.add("hidden");
+}
+
+function setGridVisible(visible, persist = true) {
+  gridVisible = !!visible;
+
+  if (gridOverlay) {
+    gridOverlay.classList.toggle("hidden", !gridVisible);
+  }
+
+  if (gridBtn) {
+    gridBtn.classList.toggle("active", gridVisible);
+    gridBtn.setAttribute("aria-pressed", gridVisible ? "true" : "false");
+    gridBtn.title = gridVisible ? "Hide UI grid overlay" : "Show UI grid overlay";
+  }
+
+  if (persist) {
+    localStorage.setItem(STORAGE_KEY_GRID_VISIBLE, gridVisible ? "1" : "0");
+  }
+
+  updateGridOverlayRect();
+}
+
+function updateGridOverlayRect() {
+  if (!gridOverlay || !video || !viewerWrap) return;
+
+  const stage = video.parentElement;
+  if (!stage) return;
+
+  const stageRect = stage.getBoundingClientRect();
+  const videoRect = video.getBoundingClientRect();
+  const naturalW = video.videoWidth || 0;
+  const naturalH = video.videoHeight || 0;
+
+  if (!naturalW || !naturalH || !videoRect.width || !videoRect.height) {
+    gridOverlay.style.left = "0px";
+    gridOverlay.style.top = "0px";
+    gridOverlay.style.width = "100%";
+    gridOverlay.style.height = "100%";
+    return;
+  }
+
+  const naturalRatio = naturalW / naturalH;
+  const boxRatio = videoRect.width / videoRect.height;
+
+  let renderedW;
+  let renderedH;
+
+  if (boxRatio > naturalRatio) {
+    renderedH = videoRect.height;
+    renderedW = renderedH * naturalRatio;
+  } else {
+    renderedW = videoRect.width;
+    renderedH = renderedW / naturalRatio;
+  }
+
+  const left = (videoRect.left - stageRect.left) + ((videoRect.width - renderedW) / 2);
+  const top = (videoRect.top - stageRect.top) + ((videoRect.height - renderedH) / 2);
+
+  gridOverlay.style.left = `${left}px`;
+  gridOverlay.style.top = `${top}px`;
+  gridOverlay.style.width = `${renderedW}px`;
+  gridOverlay.style.height = `${renderedH}px`;
+}
+
+function setupGridOverlay() {
+  if (!gridBtn || !gridOverlay) return;
+
+  gridBtn.addEventListener("click", () => {
+    setGridVisible(!gridVisible);
+  });
+
+  window.addEventListener("resize", updateGridOverlayRect);
+  video.addEventListener("loadedmetadata", updateGridOverlayRect);
+  video.addEventListener("playing", updateGridOverlayRect);
+
+  setGridVisible(gridVisible, false);
 }
 
 function lineHeightPx(element) {
@@ -324,15 +420,22 @@ function appendLogLines(lines) {
 
 async function pollComLog() {
   try {
-    const res = await fetch(`/api/logs?since=${lastLogSeq}`);
+    const res = await fetch(`/api/logs?since=${lastLogSeq}`, { cache: "no-store" });
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
     const json = await res.json();
 
-    if (!json.ok) return;
+    if (!json.ok) {
+      throw new Error(json.error || "log endpoint returned ok:false");
+    }
 
     appendLogLines(json.lines);
     lastLogSeq = Number(json.nextSeq || lastLogSeq);
-  } catch {
-    // Keep polling quietly. The app may be open while the backend restarts.
+  } catch (err) {
+    appendLogLines([{ text: `[UI LOG ERROR] /api/logs failed: ${err.message}` }]);
   }
 }
 
@@ -516,16 +619,27 @@ async function startCamera() {
     const track = stream.getVideoTracks()[0];
     const actual = track.getSettings();
 
+    cameraStatusText =
+      `cam: ${settings.camera.nameContains} ` +
+      `${actual.width || video.videoWidth}x${actual.height || video.videoHeight}` +
+      `@${Math.round(actual.frameRate || 0)}`;
+
+    updateToolbarStatus();
+
     setStatus(
       `live: ${actual.width || video.videoWidth}x${actual.height || video.videoHeight} ` +
       `@ ${actual.frameRate || "?"} fps`
     );
 
+    updateGridOverlayRect();
     snapBtn.disabled = false;
   } catch (err) {
     console.error("[CAMERA ERROR]", err);
     snapBtn.disabled = true;
     stopCameraStream();
+
+    cameraStatusText = "cam: offline";
+    updateToolbarStatus();
     setStatus(err.name ? `${err.name}: ${err.message}` : err.message);
   }
 }
@@ -610,21 +724,24 @@ function setPrinterUi(state) {
   const portLabel = info.comPort || settings.printer.comPort;
 
   if (printerOpening) {
-    printerStatus.textContent = "printer: connecting...";
+    printerStatus.dataset.baseText = "printer: connecting...";
+    updateToolbarStatus();
     connectPrinterBtn.textContent = "Connecting";
     connectPrinterBtn.disabled = true;
     setMotionButtonsEnabled(false);
   } else if (printerConnected) {
-    printerStatus.textContent = dry
+    printerStatus.dataset.baseText = dry
       ? "printer: dry run"
       : needsHome
         ? `printer: ${portLabel} — needs Safe`
         : `printer: ${portLabel}`;
+    updateToolbarStatus();
     connectPrinterBtn.textContent = "Disconnect";
     connectPrinterBtn.disabled = false;
     setMotionButtonsEnabled(true);
   } else {
-    printerStatus.textContent = "printer: disconnected";
+    printerStatus.dataset.baseText = "printer: disconnected";
+    updateToolbarStatus();
     connectPrinterBtn.textContent = "Connect";
     connectPrinterBtn.disabled = false;
     setMotionButtonsEnabled(false);
@@ -646,7 +763,8 @@ async function refreshPrinterStatus() {
 
     setPrinterUi(json);
   } catch {
-    printerStatus.textContent = "printer: unknown";
+    printerStatus.dataset.baseText = "printer: unknown";
+    updateToolbarStatus();
     connectPrinterBtn.textContent = "Connect";
     connectPrinterBtn.disabled = false;
     setMotionButtonsEnabled(false);
@@ -706,7 +824,8 @@ async function disconnectPrinter() {
     if (homeAllBtn) homeAllBtn.disabled = true;
     if (homeSafeBtn) homeSafeBtn.disabled = true;
     if (jogStepSelect) jogStepSelect.disabled = true;
-    printerStatus.textContent = "printer: disconnecting...";
+    printerStatus.dataset.baseText = "printer: disconnecting...";
+    updateToolbarStatus();
 
     const res = await fetch("/api/printer/disconnect", {
       method: "POST"
@@ -790,6 +909,8 @@ async function homeSafePrinter() {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
+        safeX: settings.printer.safeX,
+        safeY: settings.printer.safeY,
         safeZ,
         feedrateXY: settings.printer.feedrateXY,
         feedrateZ: settings.printer.feedrateZ,
@@ -920,6 +1041,7 @@ settingsForm.addEventListener("submit", event => {
 window.addEventListener("focus", refreshPrinterStatus);
 
 setupTabs();
+setupGridOverlay();
 loadSettings();
 setMotionButtonsEnabled(false);
 startComLogPolling();

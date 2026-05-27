@@ -18,6 +18,85 @@ let printerInfo = null;
 let needsHome = false;
 let commandQueue = Promise.resolve();
 
+
+// =========================
+// UI COM log buffer
+// =========================
+
+const MAX_LOG_LINES = 2000;
+
+let logSeq = 0;
+const logLines = [];
+
+const rawConsoleLog = console.log.bind(console);
+const rawConsoleWarn = console.warn.bind(console);
+const rawConsoleError = console.error.bind(console);
+
+function formatLogArg(value) {
+  if (value instanceof Error) {
+    return value.stack || value.message || String(value);
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function pushUiLog(text) {
+  const line = {
+    seq: ++logSeq,
+    text: String(text)
+  };
+
+  logLines.push(line);
+
+  if (logLines.length > MAX_LOG_LINES) {
+    logLines.splice(0, logLines.length - MAX_LOG_LINES);
+  }
+}
+
+function addLog(...args) {
+  const text = args.map(formatLogArg).join(" ");
+  pushUiLog(text);
+  rawConsoleLog(text);
+}
+
+console.log = (...args) => {
+  const text = args.map(formatLogArg).join(" ");
+  pushUiLog(text);
+  rawConsoleLog(...args);
+};
+
+console.warn = (...args) => {
+  const text = args.map(formatLogArg).join(" ");
+  pushUiLog(`[WARN] ${text}`);
+  rawConsoleWarn(...args);
+};
+
+console.error = (...args) => {
+  const text = args.map(formatLogArg).join(" ");
+  pushUiLog(`[ERROR] ${text}`);
+  rawConsoleError(...args);
+};
+
+app.get("/api/logs", (req, res) => {
+  const since = Number(req.query.since || 0);
+  const lines = logLines.filter(line => line.seq > since);
+
+  res.set("Cache-Control", "no-store");
+  res.json({
+    ok: true,
+    lines,
+    nextSeq: logSeq
+  });
+});
+
 // This is only the last position reported by the printer via M114.
 // Do not update this from browser math or from commanded target positions.
 let xyz = { x: 0, y: 0, z: 0 };
@@ -82,7 +161,7 @@ async function runQueued(fn) {
 function sendLineRaw(line, lineEnding = "\n", timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
     if (dryRun) {
-      console.log("[DRY RUN]", line);
+      addLog(`[DRY RUN] ${line}`);
       return resolve("ok");
     }
 
@@ -120,7 +199,7 @@ function sendLineRaw(line, lineEnding = "\n", timeoutMs = 15000) {
       const text = String(data).trim();
       if (!text) return;
 
-      console.log("[PRINTER]", text);
+      addLog(`[PRINTER] ${text}`);
       lines.push(text);
       updateXYZFromText(text);
 
@@ -133,7 +212,7 @@ function sendLineRaw(line, lineEnding = "\n", timeoutMs = 15000) {
 
     printerParser.on("data", onData);
 
-    console.log("[SEND]", line);
+    addLog(`[SEND] ${line}`);
 
     printerPort.write(line + decodeLineEnding(lineEnding), err => {
       if (err) fail(err);
@@ -270,7 +349,7 @@ app.post("/api/printer/connect", async (req, res) => {
       const text = String(data).trim();
 
       if (text.length) {
-        console.log("[PRINTER RAW]", text);
+        addLog(`[PRINTER RAW] ${text}`);
       }
     });
 
@@ -280,24 +359,24 @@ app.post("/api/printer/connect", async (req, res) => {
       baudRate: Number(baudRate || 115200)
     };
 
-    console.log("[INFO] Serial opened");
-    console.log("[INFO] Waiting for printer boot/reset...");
+    addLog("[INFO] Serial opened");
+    addLog("[INFO] Waiting for printer boot/reset...");
 
     // Most Marlin USB serial boards reset on port open.
     needsHome = true;
     await sleep(5000);
 
-    console.log("[INFO] Sending initialization commands");
+    addLog("[INFO] Sending initialization commands");
 
     await sendLine("G90", lineEnding);
 
     const pos = await queryPosition(lineEnding)
       .catch(err => {
-        console.log("[WARN] M114 failed:", err.message);
+        addLog(`[WARN] M114 failed: ${err.message}`);
         return null;
       });
 
-    console.log("[INFO] Printer ready");
+    addLog("[INFO] Printer ready");
 
     res.json(makePrinterState({
       position: pos,
@@ -358,7 +437,7 @@ app.get("/api/printer/status", async (req, res) => {
   try {
     if (printerConnected && !dryRun) {
       await queryPosition(req.query.lineEnding || "\n").catch(err => {
-        console.log("[WARN] status M114 failed:", err.message);
+        addLog(`[WARN] status M114 failed: ${err.message}`);
       });
     }
 
@@ -587,7 +666,7 @@ app.post("/api/snapshot", (req, res) => {
       Buffer.from(base64, "base64")
     );
 
-    console.log("[SNAPSHOT]", filepath);
+    addLog(`[SNAPSHOT] ${filepath}`);
 
     res.json({
       ok: true,
@@ -607,5 +686,5 @@ app.post("/api/snapshot", (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`PCBsnapper running at http://localhost:${PORT}`);
+  addLog(`PCBsnapper running at http://localhost:${PORT}`);
 });
