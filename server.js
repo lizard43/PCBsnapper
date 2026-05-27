@@ -149,12 +149,12 @@ async function waitForMoves(lineEnding = "\n") {
   await sendLine("M400", lineEnding, 120000);
 }
 
-async function queryPosition(lineEnding = "\n") {
+async function queryPosition(lineEnding = "\n", timeoutMs = 15000) {
   if (dryRun) {
     return xyz;
   }
 
-  const text = await sendLine("M114", lineEnding);
+  const text = await sendLine("M114", lineEnding, timeoutMs);
   const pos = updateXYZFromText(text);
 
   if (!pos) {
@@ -453,13 +453,13 @@ app.post("/api/printer/home-all", async (req, res) => {
     const { lineEnding } = req.body;
 
     await sendLine("G90", lineEnding);
-    await sendLine("G28", lineEnding);
+    await sendLine("G28", lineEnding, 120000);
 
     if (dryRun) {
       xyz = { x: 0, y: 0, z: 0 };
     }
 
-    const pos = await queryPosition(lineEnding);
+    const pos = await queryPosition(lineEnding, 30000);
     needsHome = false;
 
     res.json(makePrinterState({ xyz: pos }));
@@ -496,7 +496,7 @@ app.post("/api/printer/home-safe", async (req, res) => {
     await sendLine(`G1 X0.000 Y0.000 F${feedXY}`, lineEnding, 120000);
     await waitForMoves(lineEnding);
 
-    const pos = await queryPosition(lineEnding);
+    const pos = await queryPosition(lineEnding, 30000);
     needsHome = false;
 
     res.json(makePrinterState({ xyz: pos }));
@@ -522,13 +522,13 @@ app.post("/api/printer/home", async (req, res) => {
 
     await sendLine("G90", lineEnding);
     await sendLine(`G92 Z${z.toFixed(3)}`, lineEnding);
-    await sendLine("G28 X Y", lineEnding);
+    await sendLine("G28 X Y", lineEnding, 120000);
 
     if (dryRun) {
       xyz = { x: 0, y: 0, z };
     }
 
-    const pos = await queryPosition(lineEnding);
+    const pos = await queryPosition(lineEnding, 30000);
     needsHome = false;
 
     res.json(makePrinterState({ xyz: pos }));

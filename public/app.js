@@ -2,6 +2,10 @@ const snapBtn = document.getElementById("snapBtn");
 const statusEl = document.getElementById("status");
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
+const viewerWrap = document.getElementById("viewerWrap");
+const comLogPane = document.getElementById("comLogPane");
+const comLog = document.getElementById("comLog");
+const logResizeHandle = document.getElementById("logResizeHandle");
 
 const connectPrinterBtn = document.getElementById("connectPrinterBtn");
 const homeAllBtn = document.getElementById("homeAllBtn");
@@ -24,6 +28,13 @@ let printerConnected = false;
 let printerOpening = false;
 
 const STORAGE_KEY_SETTINGS = "pcbsnapper.settings";
+const STORAGE_KEY_LOG_HEIGHT = "pcbsnapper.comLogHeight";
+const DEFAULT_LOG_LINES = 4;
+const LOG_POLL_MS = 500;
+
+let lastLogSeq = 0;
+let logPollTimer = null;
+let logDragging = false;
 
 const VIDEO_MODES = [
   { label: "3840 × 2160 / 4K", width: 3840, height: 2160 },
@@ -217,6 +228,124 @@ function openSettings() {
 
 function closeSettings() {
   settingsOverlay.classList.add("hidden");
+}
+
+function lineHeightPx(element) {
+  const value = Number.parseFloat(getComputedStyle(element).lineHeight);
+  return Number.isFinite(value) ? value : 16;
+}
+
+function defaultLogHeightPx() {
+  const lineHeight = lineHeightPx(comLog || document.body);
+  const paneStyle = getComputedStyle(comLogPane);
+  const padTop = Number.parseFloat(paneStyle.paddingTop) || 0;
+  const padBottom = Number.parseFloat(paneStyle.paddingBottom) || 0;
+
+  return Math.ceil((lineHeight * DEFAULT_LOG_LINES) + padTop + padBottom + 2);
+}
+
+function setLogPaneHeight(height, persist = false) {
+  if (!comLogPane || !viewerWrap) return;
+
+  const toolbarHeight = document.querySelector(".toolbar")?.offsetHeight || 0;
+  const handleHeight = logResizeHandle?.offsetHeight || 0;
+  const available = Math.max(0, window.innerHeight - toolbarHeight - handleHeight);
+  const clamped = Math.max(0, Math.min(available, Math.round(height)));
+
+  document.documentElement.style.setProperty("--com-log-height", `${clamped}px`);
+
+  if (persist) {
+    localStorage.setItem(STORAGE_KEY_LOG_HEIGHT, String(clamped));
+  }
+}
+
+function restoreLogPaneHeight() {
+  const saved = Number(localStorage.getItem(STORAGE_KEY_LOG_HEIGHT));
+  setLogPaneHeight(Number.isFinite(saved) ? saved : defaultLogHeightPx(), false);
+}
+
+function setupLogResizer() {
+  if (!logResizeHandle || !comLogPane) return;
+
+  logResizeHandle.addEventListener("pointerdown", event => {
+    logDragging = true;
+    document.body.classList.add("resizing-log");
+    logResizeHandle.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+
+  logResizeHandle.addEventListener("pointermove", event => {
+    if (!logDragging) return;
+
+    setLogPaneHeight(window.innerHeight - event.clientY, true);
+    event.preventDefault();
+  });
+
+  const stopDrag = event => {
+    if (!logDragging) return;
+
+    logDragging = false;
+    document.body.classList.remove("resizing-log");
+
+    try {
+      logResizeHandle.releasePointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture may already be released.
+    }
+  };
+
+  logResizeHandle.addEventListener("pointerup", stopDrag);
+  logResizeHandle.addEventListener("pointercancel", stopDrag);
+
+  window.addEventListener("resize", () => {
+    const current = Number.parseFloat(getComputedStyle(comLogPane).height);
+    setLogPaneHeight(Number.isFinite(current) ? current : defaultLogHeightPx(), true);
+  });
+}
+
+function appendLogLines(lines) {
+  if (!comLog || !Array.isArray(lines) || !lines.length) return;
+
+  const wasAtBottom =
+    comLogPane.scrollTop + comLogPane.clientHeight >= comLogPane.scrollHeight - 4;
+
+  const text = lines.map(line => line.text).join("\n");
+  comLog.textContent += comLog.textContent ? `\n${text}` : text;
+
+  const allLines = comLog.textContent.split("\n");
+  if (allLines.length > 2000) {
+    comLog.textContent = allLines.slice(-2000).join("\n");
+  }
+
+  if (wasAtBottom) {
+    comLogPane.scrollTop = comLogPane.scrollHeight;
+  }
+}
+
+async function pollComLog() {
+  try {
+    const res = await fetch(`/api/logs?since=${lastLogSeq}`);
+    const json = await res.json();
+
+    if (!json.ok) return;
+
+    appendLogLines(json.lines);
+    lastLogSeq = Number(json.nextSeq || lastLogSeq);
+  } catch {
+    // Keep polling quietly. The app may be open while the backend restarts.
+  }
+}
+
+function startComLogPolling() {
+  restoreLogPaneHeight();
+  setupLogResizer();
+  pollComLog();
+
+  if (logPollTimer) {
+    clearInterval(logPollTimer);
+  }
+
+  logPollTimer = setInterval(pollComLog, LOG_POLL_MS);
 }
 
 function setupTabs() {
@@ -708,5 +837,6 @@ window.addEventListener("focus", refreshPrinterStatus);
 setupTabs();
 loadSettings();
 setMotionButtonsEnabled(false);
+startComLogPolling();
 startCamera();
 refreshPrinterStatus();

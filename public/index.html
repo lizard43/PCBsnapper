@@ -46,8 +46,9 @@
     </div>
   </header>
 
-  <main class="viewer-wrap">
-    <div class="video-stage">
+  <main class="app-main">
+    <section id="viewerWrap" class="viewer-wrap">
+      <div class="video-stage">
       <video id="video" autoplay playsinline muted></video>
 
       <div class="crosshair-overlay" aria-hidden="true">
@@ -55,9 +56,16 @@
         <div class="crosshair-line crosshair-h"></div>
         <div class="crosshair-center"></div>
       </div>
-    </div>
+      </div>
 
-    <canvas id="canvas"></canvas>
+      <canvas id="canvas"></canvas>
+    </section>
+
+    <div id="logResizeHandle" class="log-resize-handle" title="Drag to resize COM log"></div>
+
+    <section id="comLogPane" class="com-log-pane" aria-label="COM log">
+      <pre id="comLog"></pre>
+    </section>
   </main>
 
   <div id="settingsOverlay" class="modal-overlay hidden">

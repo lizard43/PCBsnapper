@@ -9,6 +9,10 @@ body {
   font-family: Arial, sans-serif;
 }
 
+:root {
+  --com-log-height: 70px;
+}
+
 /* =========================
    Toolbar
    ========================= */
@@ -138,17 +142,77 @@ select {
 }
 
 /* =========================
-   Viewer
+   Viewer / COM log split
    ========================= */
 
-.viewer-wrap {
+.app-main {
   width: 100vw;
   height: calc(100vh - 92px);
+  display: flex;
+  flex-direction: column;
+  background: #000;
+  overflow: hidden;
+}
+
+.viewer-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   background: #000;
   overflow: hidden;
+}
+
+.log-resize-handle {
+  flex: 0 0 7px;
+  height: 7px;
+  background: #1b1b1b;
+  border-top: 1px solid #333;
+  border-bottom: 1px solid #333;
+  cursor: ns-resize;
+  position: relative;
+}
+
+.log-resize-handle::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 58px;
+  height: 2px;
+  background: #666;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+}
+
+.log-resize-handle:hover,
+body.resizing-log .log-resize-handle {
+  background: #262626;
+}
+
+body.resizing-log {
+  cursor: ns-resize;
+  user-select: none;
+}
+
+.com-log-pane {
+  flex: 0 0 var(--com-log-height);
+  height: var(--com-log-height);
+  min-height: 0;
+  max-height: calc(100vh - 99px);
+  overflow: auto;
+  background: #000;
+  color: #fff;
+  border-top: 1px solid #050505;
+  padding: 4px 8px;
+  font: 13px/1.2 Consolas, "Courier New", monospace;
+}
+
+#comLog {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .video-stage {
