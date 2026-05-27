@@ -398,49 +398,134 @@ async function findPreferredCamera() {
   setStatus(`found ${match.label}`);
 }
 
-async function startCamera() {
-  try {
-    if (!cameraDeviceId) {
-      await findPreferredCamera();
+function stopCameraStream() {
+  if (stream) {
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
+  }
+
+  video.srcObject = null;
+}
+
+function waitForVideoMetadata() {
+  return new Promise((resolve, reject) => {
+    if (video.videoWidth && video.videoHeight) {
+      resolve();
+      return;
     }
 
-    if (stream) {
-      stream.getTracks().forEach(t => t.stop());
-      stream = null;
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error("Camera opened, but no video frame metadata arrived"));
+    }, 5000);
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      video.removeEventListener("loadedmetadata", onLoaded);
+      video.removeEventListener("error", onError);
+    };
+
+    const onLoaded = () => {
+      cleanup();
+      resolve();
+    };
+
+    const onError = () => {
+      cleanup();
+      reject(new Error("Video element reported an error while opening camera"));
+    };
+
+    video.addEventListener("loadedmetadata", onLoaded, { once: true });
+    video.addEventListener("error", onError, { once: true });
+  });
+}
+
+function makeCameraConstraints(width, height, exactDevice = true) {
+  const videoConstraints = {
+    width: { ideal: width },
+    height: { ideal: height },
+    frameRate: { ideal: 30 }
+  };
+
+  if (cameraDeviceId) {
+    videoConstraints.deviceId = exactDevice
+      ? { exact: cameraDeviceId }
+      : { ideal: cameraDeviceId };
+  }
+
+  return {
+    video: videoConstraints,
+    audio: false
+  };
+}
+
+async function openCameraWithFallbacks(modeW, modeH) {
+  const attempts = [
+    { width: modeW, height: modeH, exactDevice: true, label: "requested" },
+    { width: 1920, height: 1080, exactDevice: true, label: "1080p fallback" },
+    { width: 1280, height: 720, exactDevice: true, label: "720p fallback" },
+    { width: modeW, height: modeH, exactDevice: false, label: "loose device fallback" }
+  ];
+
+  let lastError = null;
+
+  for (const attempt of attempts) {
+    try {
+      setStatus(
+        `opening ${settings.camera.nameContains} ` +
+        `${attempt.width}x${attempt.height} (${attempt.label})...`
+      );
+
+      return await navigator.mediaDevices.getUserMedia(
+        makeCameraConstraints(attempt.width, attempt.height, attempt.exactDevice)
+      );
+    } catch (err) {
+      lastError = err;
+      console.warn(
+        "[CAMERA OPEN FAILED]",
+        `${attempt.width}x${attempt.height}`,
+        attempt.label,
+        err.name || "",
+        err.message || err
+      );
+    }
+  }
+
+  throw lastError || new Error("Camera open failed");
+}
+
+async function startCamera() {
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Browser camera API is not available. Use http://localhost or https.");
     }
 
     snapBtn.disabled = true;
+    stopCameraStream();
+
+    cameraDeviceId = null;
+    await findPreferredCamera();
 
     const [modeW, modeH] = settings.camera.defaultResolution.split("x").map(Number);
+    stream = await openCameraWithFallbacks(modeW, modeH);
 
-    const constraints = {
-      video: {
-        deviceId: { exact: cameraDeviceId },
-        width: { ideal: modeW },
-        height: { ideal: modeH },
-        frameRate: { ideal: 30 }
-      },
-      audio: false
-    };
-
-    setStatus(`opening ${settings.camera.nameContains} at requested ${modeW}x${modeH}...`);
-
-    stream = await navigator.mediaDevices.getUserMedia(constraints);
     video.srcObject = stream;
-
+    await waitForVideoMetadata();
     await video.play();
 
     const track = stream.getVideoTracks()[0];
     const actual = track.getSettings();
 
     setStatus(
-      `live: ${actual.width}x${actual.height} @ ${actual.frameRate || "?"} fps`
+      `live: ${actual.width || video.videoWidth}x${actual.height || video.videoHeight} ` +
+      `@ ${actual.frameRate || "?"} fps`
     );
 
     snapBtn.disabled = false;
   } catch (err) {
-    console.error(err);
+    console.error("[CAMERA ERROR]", err);
     snapBtn.disabled = true;
+    stopCameraStream();
     setStatus(err.name ? `${err.name}: ${err.message}` : err.message);
   }
 }

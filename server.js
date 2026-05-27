@@ -478,6 +478,8 @@ app.post("/api/printer/home-all", async (req, res) => {
 app.post("/api/printer/home-safe", async (req, res) => {
   try {
     const {
+      safeX,
+      safeY,
       safeZ,
       feedrateXY,
       feedrateZ,
@@ -493,7 +495,14 @@ app.post("/api/printer/home-safe", async (req, res) => {
     await sendLine(`G1 Z${z.toFixed(3)} F${feedZ}`, lineEnding, 120000);
     await waitForMoves(lineEnding);
 
-    await sendLine(`G1 X0.000 Y0.000 F${feedXY}`, lineEnding, 120000);
+    await sendLine(
+      `G1 X${Number(safeX || 0).toFixed(3)} ` +
+      `Y${Number(safeY || 0).toFixed(3)} ` +
+      `F${feedXY}`,
+      lineEnding,
+      120000
+    );
+
     await waitForMoves(lineEnding);
 
     const pos = await queryPosition(lineEnding, 30000);

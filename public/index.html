@@ -49,13 +49,13 @@
   <main class="app-main">
     <section id="viewerWrap" class="viewer-wrap">
       <div class="video-stage">
-      <video id="video" autoplay playsinline muted></video>
+        <video id="video" autoplay playsinline muted></video>
 
-      <div class="crosshair-overlay" aria-hidden="true">
-        <div class="crosshair-line crosshair-v"></div>
-        <div class="crosshair-line crosshair-h"></div>
-        <div class="crosshair-center"></div>
-      </div>
+        <div class="crosshair-overlay" aria-hidden="true">
+          <div class="crosshair-line crosshair-v"></div>
+          <div class="crosshair-line crosshair-h"></div>
+          <div class="crosshair-center"></div>
+        </div>
       </div>
 
       <canvas id="canvas"></canvas>
@@ -139,6 +139,16 @@
           <label>
             Safe Z height
             <input id="setSafeZ" type="number" step="0.01">
+          </label>
+
+          <label>
+            Safe X position
+            <input id="setSafeX" type="number" step="0.01">
+          </label>
+
+          <label>
+            Safe Y position
+            <input id="setSafeY" type="number" step="0.01">
           </label>
 
           <label>
