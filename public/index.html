@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <title>PCBsnapper</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+  <header class="toolbar">
+    <button id="homePrinterBtn" disabled title="Move to safe Z, then home X/Y">Home</button>
+
+    <div class="jog-controls">
+      <button class="jog-btn" data-axis="X" data-dir="1">X+</button>
+      <button class="jog-btn" data-axis="X" data-dir="-1">X-</button>
+      <button class="jog-btn" data-axis="Y" data-dir="1">Y+</button>
+      <button class="jog-btn" data-axis="Y" data-dir="-1">Y-</button>
+      <button class="jog-btn" data-axis="Z" data-dir="1">Z+</button>
+      <button class="jog-btn" data-axis="Z" data-dir="-1">Z-</button>
+
+      <select id="jogStepSelect">
+        <option value="0.1">0.1mm</option>
+        <option value="1">1mm</option>
+        <option value="5">5mm</option>
+        <option value="10" selected>10mm</option>
+        <option value="25">25mm</option>
+      </select>
+    </div>
+
+    <button id="connectPrinterBtn">Connect</button>
+    <button id="snapBtn" disabled>Snapshot</button>
+
+    <span id="printerStatus">printer: disconnected</span>
+    <span id="xyzStatus">X0.00 Y0.00 Z0.00</span>
+    <span id="status">starting...</span>
+
+    <button id="settingsBtn" class="settings-btn" title="Settings" aria-label="Settings">
+      <span class="gear-icon"></span>
+    </button>
+  </header>
+
+  <main class="viewer-wrap">
+    <div class="video-stage">
+      <video id="video" autoplay playsinline muted></video>
+
+      <div class="crosshair-overlay" aria-hidden="true">
+        <div class="crosshair-line crosshair-v"></div>
+        <div class="crosshair-line crosshair-h"></div>
+        <div class="crosshair-center"></div>
+      </div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+  </main>
+
+  <div id="settingsOverlay" class="modal-overlay hidden">
+    <section class="settings-modal">
+      <header class="modal-header">
+        <h2>Settings</h2>
+        <button id="settingsCloseBtn" class="icon-btn">×</button>
+      </header>
+
+      <nav class="settings-tabs">
+        <button class="tab-btn active" data-tab="camera">Camera</button>
+        <button class="tab-btn" data-tab="printer">Printer / Motion</button>
+        <button class="tab-btn" data-tab="raster">Raster Capture</button>
+        <button class="tab-btn" data-tab="debug">Debug</button>
+      </nav>
+
+      <form id="settingsForm">
+        <div class="tab-panel active" data-panel="camera">
+          <label>
+            Preferred camera name contains
+            <input id="setCameraName" type="text">
+          </label>
+
+          <label>
+            Default resolution
+            <select id="setDefaultResolution"></select>
+          </label>
+
+          <label>
+            JPEG quality
+            <input id="setJpegQuality" type="number" min="0.1" max="1" step="0.01">
+          </label>
+
+          <label>
+            Snapshot folder
+            <input id="setSnapshotFolder" type="text">
+          </label>
+
+          <label>
+            Snapshot prefix
+            <input id="setSnapshotPrefix" type="text">
+          </label>
+        </div>
+
+        <div class="tab-panel" data-panel="printer">
+          <label>
+            COM port
+            <input id="setComPort" type="text" placeholder="COM3">
+          </label>
+
+          <label>
+            Baud rate
+            <input id="setBaudRate" type="number" min="1">
+          </label>
+
+          <label>
+            G-code line ending
+            <select id="setLineEnding">
+              <option value="\n">\n</option>
+              <option value="\r\n">\r\n</option>
+            </select>
+          </label>
+
+          <label>
+            Movement units
+            <select id="setUnits">
+              <option value="mm">mm</option>
+            </select>
+          </label>
+
+          <label>
+            Safe Z height
+            <input id="setSafeZ" type="number" step="0.01">
+          </label>
+
+          <label>
+            Default feedrate XY
+            <input id="setFeedXY" type="number" step="1">
+          </label>
+
+          <label>
+            Default feedrate Z
+            <input id="setFeedZ" type="number" step="1">
+          </label>
+
+          <label>
+            Settle delay after move before snapshot (ms)
+            <input id="setSettleDelay" type="number" step="1">
+          </label>
+        </div>
+
+        <div class="tab-panel" data-panel="raster">
+          <label>
+            Tile step X
+            <input id="setTileStepX" type="number" step="0.01">
+          </label>
+
+          <label>
+            Tile step Y
+            <input id="setTileStepY" type="number" step="0.01">
+          </label>
+
+          <label>
+            Tiles X count
+            <input id="setTilesX" type="number" min="1" step="1">
+          </label>
+
+          <label>
+            Tiles Y count
+            <input id="setTilesY" type="number" min="1" step="1">
+          </label>
+
+          <label class="checkbox-row">
+            <input id="setSnakeRaster" type="checkbox">
+            Snake raster
+          </label>
+
+          <label>
+            Snapshot filename pattern
+            <input id="setFilenamePattern" type="text">
+          </label>
+        </div>
+
+        <div class="tab-panel" data-panel="debug">
+          <label class="checkbox-row">
+            <input id="setLogSerial" type="checkbox">
+            Log serial traffic
+          </label>
+
+          <label class="checkbox-row">
+            <input id="setDryRun" type="checkbox">
+            Dry run mode
+          </label>
+        </div>
+
+        <footer class="modal-actions">
+          <button type="button" id="settingsResetBtn">Reset Defaults</button>
+          <span class="modal-spacer"></span>
+          <button type="button" id="settingsCancelBtn">Cancel</button>
+          <button type="submit" id="settingsSaveBtn">Save</button>
+        </footer>
+      </form>
+    </section>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+
+</html>
