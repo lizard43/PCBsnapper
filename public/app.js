@@ -14,6 +14,9 @@ const captureTileStepX = document.getElementById("captureTileStepX");
 const captureTileStepY = document.getElementById("captureTileStepY");
 const captureTilesX = document.getElementById("captureTilesX");
 const captureTilesY = document.getElementById("captureTilesY");
+const captureFarX = document.getElementById("captureFarX");
+const captureFarY = document.getElementById("captureFarY");
+const captureTileCountPreview = document.getElementById("captureTileCountPreview");
 const captureSnakeRaster = document.getElementById("captureSnakeRaster");
 const captureFilenamePattern = document.getElementById("captureFilenamePattern");
 const gridOverlay = document.getElementById("gridOverlay");
@@ -196,7 +199,8 @@ function loadSettingsForm() {
   document.getElementById("setTilesX").value = settings.raster.tilesX;
   document.getElementById("setTilesY").value = settings.raster.tilesY;
   document.getElementById("setSnakeRaster").checked = settings.raster.snakeRaster;
-  document.getElementById("setFilenamePattern").value = settings.raster.filenamePattern;
+  document.getElementById("setFilenamePattern").value =
+    normalizeRasterFilenamePattern(settings.raster.filenamePattern);
 
   document.getElementById("setLogSerial").checked = settings.debug.logSerialTraffic;
   document.getElementById("setDryRun").checked = settings.debug.dryRun;
@@ -246,7 +250,7 @@ function readSettingsForm() {
   settings.raster.snakeRaster =
     document.getElementById("setSnakeRaster").checked;
   settings.raster.filenamePattern =
-    document.getElementById("setFilenamePattern").value.trim() || "{project}_tile_x{X}_y{Y}.jpg";
+    normalizeRasterFilenamePattern(document.getElementById("setFilenamePattern").value);
 
   settings.debug.logSerialTraffic =
     document.getElementById("setLogSerial").checked;
@@ -263,16 +267,120 @@ function closeSettings() {
   settingsOverlay.classList.add("hidden");
 }
 
+function setCaptureCountPreview(text) {
+  if (captureTileCountPreview) {
+    captureTileCountPreview.textContent = text;
+  }
+}
+
+function captureOriginX() {
+  return numberValue(settings?.printer?.safeX, 0);
+}
+
+function captureOriginY() {
+  return numberValue(settings?.printer?.safeY, 0);
+}
+
+function updateCapturePreview() {
+  const originX = captureOriginX();
+  const originY = captureOriginY();
+
+  const stepX = Math.max(0.001, numberValue(captureTileStepX?.value, settings.raster.tileStepX));
+  const stepY = Math.max(0.001, numberValue(captureTileStepY?.value, settings.raster.tileStepY));
+
+  const tilesX = Math.max(1, intValue(captureTilesX?.value, settings.raster.tilesX));
+  const tilesY = Math.max(1, intValue(captureTilesY?.value, settings.raster.tilesY));
+
+  const farX = originX + ((tilesX - 1) * stepX);
+  const farY = originY + ((tilesY - 1) * stepY);
+  const total = tilesX * tilesY;
+
+  setCaptureCountPreview(
+    `Origin X${originX.toFixed(2)} Y${originY.toFixed(2)} → ` +
+    `far X${farX.toFixed(2)} Y${farY.toFixed(2)} · ` +
+    `${tilesX} × ${tilesY} = ${total} tiles`
+  );
+}
+
+function updateCaptureFarFromCounts() {
+  if (!captureFarX || !captureFarY) {
+    updateCapturePreview();
+    return;
+  }
+
+  const originX = captureOriginX();
+  const originY = captureOriginY();
+
+  const stepX = Math.max(0.001, numberValue(captureTileStepX?.value, settings.raster.tileStepX));
+  const stepY = Math.max(0.001, numberValue(captureTileStepY?.value, settings.raster.tileStepY));
+
+  const tilesX = Math.max(1, intValue(captureTilesX?.value, settings.raster.tilesX));
+  const tilesY = Math.max(1, intValue(captureTilesY?.value, settings.raster.tilesY));
+
+  captureFarX.value = (originX + ((tilesX - 1) * stepX)).toFixed(2);
+  captureFarY.value = (originY + ((tilesY - 1) * stepY)).toFixed(2);
+
+  updateCapturePreview();
+}
+
+function updateCaptureCountsFromFar() {
+  if (!captureFarX || !captureFarY) {
+    updateCapturePreview();
+    return;
+  }
+
+  const originX = captureOriginX();
+  const originY = captureOriginY();
+
+  const stepX = Math.max(0.001, numberValue(captureTileStepX?.value, settings.raster.tileStepX));
+  const stepY = Math.max(0.001, numberValue(captureTileStepY?.value, settings.raster.tileStepY));
+
+  const farX = numberValue(captureFarX.value, originX);
+  const farY = numberValue(captureFarY.value, originY);
+
+  const tilesX = Math.max(1, Math.floor((farX - originX) / stepX) + 1);
+  const tilesY = Math.max(1, Math.floor((farY - originY) / stepY) + 1);
+
+  if (captureTilesX) captureTilesX.value = tilesX;
+  if (captureTilesY) captureTilesY.value = tilesY;
+
+  updateCapturePreview();
+}
+
 function openCaptureDialog() {
   if (!captureOverlay) return;
 
-  captureProjectName.value = settings.camera.snapshotFolder || "pcb_project";
-  captureTileStepX.value = settings.raster.tileStepX;
-  captureTileStepY.value = settings.raster.tileStepY;
-  captureTilesX.value = settings.raster.tilesX;
-  captureTilesY.value = settings.raster.tilesY;
-  captureSnakeRaster.checked = settings.raster.snakeRaster;
-  captureFilenamePattern.value = settings.raster.filenamePattern || "{project}_tile_x{X}_y{Y}.jpg";
+  const missing = [];
+  const requireEl = (el, name) => {
+    if (!el) missing.push(name);
+    return !!el;
+  };
+
+  requireEl(captureProjectName, "captureProjectName");
+  requireEl(captureTileStepX, "captureTileStepX");
+  requireEl(captureTileStepY, "captureTileStepY");
+  requireEl(captureTilesX, "captureTilesX");
+  requireEl(captureTilesY, "captureTilesY");
+  requireEl(captureSnakeRaster, "captureSnakeRaster");
+  requireEl(captureFilenamePattern, "captureFilenamePattern");
+
+  if (missing.length) {
+    const msg = `capture dialog markup is missing: ${missing.join(", ")}`;
+    console.error(msg);
+    setStatus(msg);
+    return;
+  }
+
+  captureProjectName.value = settings?.camera?.snapshotFolder || "pcb_project";
+  captureTileStepX.value = settings?.raster?.tileStepX ?? DEFAULT_SETTINGS.raster.tileStepX;
+  captureTileStepY.value = settings?.raster?.tileStepY ?? DEFAULT_SETTINGS.raster.tileStepY;
+  captureTilesX.value = settings?.raster?.tilesX ?? DEFAULT_SETTINGS.raster.tilesX;
+  captureTilesY.value = settings?.raster?.tilesY ?? DEFAULT_SETTINGS.raster.tilesY;
+  captureSnakeRaster.checked = !!(settings?.raster?.snakeRaster ?? DEFAULT_SETTINGS.raster.snakeRaster);
+  captureFilenamePattern.value =
+    settings?.raster?.filenamePattern || "{project}_tile_x{X}_y{Y}.jpg";
+
+  updateCaptureFarFromCounts();
 
   captureOverlay.classList.remove("hidden");
   captureProjectName.focus();
@@ -294,21 +402,33 @@ function sanitizeToken(value, fallback = "project") {
   return safe || fallback;
 }
 
+function normalizeRasterFilenamePattern(value) {
+  const raw = String(value || "").trim();
+
+  if (!raw || raw === "tile_x{X}_y{Y}.jpg") {
+    return "{project}_tile_x{X}_y{Y}.jpg";
+  }
+
+  return raw;
+}
+
 function readCaptureForm() {
-  const project = sanitizeToken(captureProjectName.value, "project");
+  const project = sanitizeToken(captureProjectName?.value, "project");
 
   return {
     project,
-    tileStepX: numberValue(captureTileStepX.value, settings.raster.tileStepX),
-    tileStepY: numberValue(captureTileStepY.value, settings.raster.tileStepY),
-    tilesX: Math.max(1, intValue(captureTilesX.value, settings.raster.tilesX)),
-    tilesY: Math.max(1, intValue(captureTilesY.value, settings.raster.tilesY)),
-    snakeRaster: !!captureSnakeRaster.checked,
-    filenamePattern: captureFilenamePattern.value.trim() || "{project}_tile_x{X}_y{Y}.jpg"
+    tileStepX: numberValue(captureTileStepX?.value, settings?.raster?.tileStepX ?? DEFAULT_SETTINGS.raster.tileStepX),
+    tileStepY: numberValue(captureTileStepY?.value, settings?.raster?.tileStepY ?? DEFAULT_SETTINGS.raster.tileStepY),
+    tilesX: Math.max(1, intValue(captureTilesX?.value, settings?.raster?.tilesX ?? DEFAULT_SETTINGS.raster.tilesX)),
+    tilesY: Math.max(1, intValue(captureTilesY?.value, settings?.raster?.tilesY ?? DEFAULT_SETTINGS.raster.tilesY)),
+    snakeRaster: !!(captureSnakeRaster?.checked ?? settings?.raster?.snakeRaster ?? DEFAULT_SETTINGS.raster.snakeRaster),
+    filenamePattern: normalizeRasterFilenamePattern(captureFilenamePattern?.value ?? settings?.raster?.filenamePattern)
   };
 }
 
-function makeRasterFilename(pattern, project, tileX, tileY) {
+function makeRasterFilename(pattern, project, tileX, tileY, imageIndex) {
+  const index = Math.max(0, intValue(imageIndex, 0));
+
   const replacements = {
     project,
     X: String(tileX),
@@ -316,13 +436,19 @@ function makeRasterFilename(pattern, project, tileX, tileY) {
     x: String(tileX),
     y: String(tileY),
     col: String(tileX),
-    row: String(tileY)
+    row: String(tileY),
+    n: String(index),
+    index: String(index)
   };
 
-  let name = String(pattern || "{project}_tile_x{X}_y{Y}.jpg").replace(
-    /\{(project|X|Y|x|y|col|row)\}/g,
+  let name = normalizeRasterFilenamePattern(pattern).replace(
+    /\{(project|X|Y|x|y|col|row|n|index)\}/g,
     (all, key) => replacements[key] ?? all
   );
+
+  name = name.replace(/\{(n{2,})\}/g, (all, ns) => {
+    return String(index).padStart(ns.length, "0");
+  });
 
   name = sanitizeToken(name, `${project}_tile_x${tileX}_y${tileY}.jpg`);
 
@@ -389,7 +515,6 @@ async function movePrinterAbsoluteXY(x, y) {
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
-
 
 function setGridVisible(visible, persist = true) {
   gridVisible = !!visible;
@@ -921,7 +1046,8 @@ async function startRasterCapture(event) {
         captureSettings.filenamePattern,
         captureSettings.project,
         tile.tileX,
-        tile.tileY
+        tile.tileY,
+        i
       );
 
       setStatus(`tile ${stepText}: saving ${name}...`);
@@ -1238,6 +1364,13 @@ if (startCaptureBtn) startCaptureBtn.addEventListener("click", openCaptureDialog
 if (captureCloseBtn) captureCloseBtn.addEventListener("click", closeCaptureDialog);
 if (captureCancelBtn) captureCancelBtn.addEventListener("click", closeCaptureDialog);
 if (captureForm) captureForm.addEventListener("submit", startRasterCapture);
+if (captureFarX) captureFarX.addEventListener("input", updateCaptureCountsFromFar);
+if (captureFarY) captureFarY.addEventListener("input", updateCaptureCountsFromFar);
+if (captureTilesX) captureTilesX.addEventListener("input", updateCaptureFarFromCounts);
+if (captureTilesY) captureTilesY.addEventListener("input", updateCaptureFarFromCounts);
+if (captureTileStepX) captureTileStepX.addEventListener("input", updateCaptureFarFromCounts);
+if (captureTileStepY) captureTileStepY.addEventListener("input", updateCaptureFarFromCounts);
+
 connectPrinterBtn.addEventListener("click", togglePrinterConnection);
 homeAllBtn.addEventListener("click", homeAllPrinter);
 homeSafeBtn.addEventListener("click", homeSafePrinter);
