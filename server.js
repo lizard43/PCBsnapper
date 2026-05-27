@@ -525,6 +525,98 @@ app.post("/api/printer/jog", async (req, res) => {
   }
 });
 
+
+app.post("/api/printer/move-absolute", async (req, res) => {
+  try {
+    const {
+      x,
+      y,
+      z,
+      safeZ,
+      feedrateXY,
+      feedrateZ,
+      lineEnding
+    } = req.body;
+
+    if (needsHome) {
+      return res.status(409).json({
+        ...makePrinterState(),
+        ok: false,
+        error: "Printer reset since last Safe/Home. Press Safe before raster capture."
+      });
+    }
+
+    const target = {};
+
+    if (x !== undefined) {
+      const nx = Number(x);
+      if (!Number.isFinite(nx) || nx < 0) {
+        return res.status(400).json({
+          ...makePrinterState(),
+          ok: false,
+          error: "Bad X target"
+        });
+      }
+      target.x = nx;
+    }
+
+    if (y !== undefined) {
+      const ny = Number(y);
+      if (!Number.isFinite(ny) || ny < 0) {
+        return res.status(400).json({
+          ...makePrinterState(),
+          ok: false,
+          error: "Bad Y target"
+        });
+      }
+      target.y = ny;
+    }
+
+    if (z !== undefined) {
+      const nz = Number(z);
+      if (!Number.isFinite(nz) || nz < 0) {
+        return res.status(400).json({
+          ...makePrinterState(),
+          ok: false,
+          error: "Bad Z target"
+        });
+      }
+      target.z = nz;
+    }
+
+    if (target.x === undefined && target.y === undefined && target.z === undefined) {
+      return res.status(400).json({
+        ...makePrinterState(),
+        ok: false,
+        error: "No move target supplied"
+      });
+    }
+
+    const hasXY = target.x !== undefined || target.y !== undefined;
+
+    if (hasXY) {
+      await raiseToSafeZ(safeZ, feedrateZ, lineEnding);
+    }
+
+    target.feed = hasXY
+      ? numberOr(feedrateXY, 3000)
+      : numberOr(feedrateZ, 300);
+
+    const pos = await moveAbsolute(target, lineEnding);
+    await waitForMoves(lineEnding);
+
+    const finalPos = dryRun ? pos : await queryPosition(lineEnding, 30000);
+
+    res.json(makePrinterState({ xyz: finalPos }));
+  } catch (err) {
+    res.status(500).json({
+      ...makePrinterState(),
+      ok: false,
+      error: err.message
+    });
+  }
+});
+
 // Full printer home. This sends real G28 with no axis arguments.
 // WARNING: with a long camera/lens installed, this can drive Z toward bed/home.
 app.post("/api/printer/home-all", async (req, res) => {

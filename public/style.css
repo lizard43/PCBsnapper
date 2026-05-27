@@ -463,3 +463,55 @@ label select {
     flex-wrap: wrap;
   }
 }
+
+/* =========================
+   Raster capture dialog
+   ========================= */
+
+.capture-modal {
+  width: min(700px, calc(100vw - 24px));
+}
+
+.capture-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 14px;
+}
+
+.capture-grid .wide-field {
+  grid-column: 1 / -1;
+}
+
+.capture-checkbox-row {
+  align-self: end;
+  min-height: 58px;
+}
+
+.capture-note {
+  margin: 0;
+  padding: 0 14px 12px;
+  color: #aaa;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+#startCaptureBtn {
+  border-color: #6c8a4d;
+  color: #dceec9;
+}
+
+#startCaptureBtn:hover:not(:disabled) {
+  background: #35422c;
+  color: #fff;
+}
+
+@media (max-width: 640px) {
+  .capture-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .capture-grid .wide-field {
+    grid-column: auto;
+  }
+}

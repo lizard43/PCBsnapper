@@ -4,6 +4,18 @@ const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const viewerWrap = document.getElementById("viewerWrap");
 const gridBtn = document.getElementById("gridBtn");
+const startCaptureBtn = document.getElementById("startCaptureBtn");
+const captureOverlay = document.getElementById("captureOverlay");
+const captureCloseBtn = document.getElementById("captureCloseBtn");
+const captureCancelBtn = document.getElementById("captureCancelBtn");
+const captureForm = document.getElementById("captureForm");
+const captureProjectName = document.getElementById("captureProjectName");
+const captureTileStepX = document.getElementById("captureTileStepX");
+const captureTileStepY = document.getElementById("captureTileStepY");
+const captureTilesX = document.getElementById("captureTilesX");
+const captureTilesY = document.getElementById("captureTilesY");
+const captureSnakeRaster = document.getElementById("captureSnakeRaster");
+const captureFilenamePattern = document.getElementById("captureFilenamePattern");
 const gridOverlay = document.getElementById("gridOverlay");
 const comLogPane = document.getElementById("comLogPane");
 const comLog = document.getElementById("comLog");
@@ -29,6 +41,7 @@ let settings = null;
 let printerConnected = false;
 let printerOpening = false;
 let cameraStatusText = "cam: disconnected";
+let rasterRunning = false;
 
 const STORAGE_KEY_SETTINGS = "pcbsnapper.settings";
 const STORAGE_KEY_LOG_HEIGHT = "pcbsnapper.comLogHeight";
@@ -75,7 +88,7 @@ const DEFAULT_SETTINGS = {
     tilesX: 3,
     tilesY: 3,
     snakeRaster: true,
-    filenamePattern: "tile_x{X}_y{Y}.jpg"
+    filenamePattern: "{project}_tile_x{X}_y{Y}.jpg"
   },
   debug: {
     logSerialTraffic: true,
@@ -183,7 +196,8 @@ function loadSettingsForm() {
   document.getElementById("setTilesX").value = settings.raster.tilesX;
   document.getElementById("setTilesY").value = settings.raster.tilesY;
   document.getElementById("setSnakeRaster").checked = settings.raster.snakeRaster;
-  document.getElementById("setFilenamePattern").value = settings.raster.filenamePattern;
+  document.getElementById("setFilenamePattern").value =
+    normalizeRasterFilenamePattern(settings.raster.filenamePattern);
 
   document.getElementById("setLogSerial").checked = settings.debug.logSerialTraffic;
   document.getElementById("setDryRun").checked = settings.debug.dryRun;
@@ -233,7 +247,7 @@ function readSettingsForm() {
   settings.raster.snakeRaster =
     document.getElementById("setSnakeRaster").checked;
   settings.raster.filenamePattern =
-    document.getElementById("setFilenamePattern").value.trim() || "tile_x{X}_y{Y}.jpg";
+    normalizeRasterFilenamePattern(document.getElementById("setFilenamePattern").value);
 
   settings.debug.logSerialTraffic =
     document.getElementById("setLogSerial").checked;
@@ -249,6 +263,156 @@ function openSettings() {
 function closeSettings() {
   settingsOverlay.classList.add("hidden");
 }
+
+function openCaptureDialog() {
+  if (!captureOverlay) return;
+
+  captureProjectName.value = settings.camera.snapshotFolder || "pcb_project";
+  captureTileStepX.value = settings.raster.tileStepX;
+  captureTileStepY.value = settings.raster.tileStepY;
+  captureTilesX.value = settings.raster.tilesX;
+  captureTilesY.value = settings.raster.tilesY;
+  captureSnakeRaster.checked = settings.raster.snakeRaster;
+  captureFilenamePattern.value = normalizeRasterFilenamePattern(settings.raster.filenamePattern);
+
+  captureOverlay.classList.remove("hidden");
+  captureProjectName.focus();
+  captureProjectName.select();
+}
+
+function closeCaptureDialog() {
+  if (captureOverlay) {
+    captureOverlay.classList.add("hidden");
+  }
+}
+
+function sanitizeToken(value, fallback = "project") {
+  const safe = String(value || "")
+    .trim()
+    .replace(/[^A-Za-z0-9_.-]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  return safe || fallback;
+}
+
+function normalizeRasterFilenamePattern(value) {
+  const raw = String(value || "").trim();
+
+  // Upgrade the old pre-project default so saved localStorage/settings do not
+  // keep opening the dialog as tile_x{X}_y{Y}.jpg.
+  if (!raw || raw === "tile_x{X}_y{Y}.jpg") {
+    return "{project}_tile_x{X}_y{Y}.jpg";
+  }
+
+  return raw;
+}
+
+function readCaptureForm() {
+  const project = sanitizeToken(captureProjectName.value, "project");
+
+  return {
+    project,
+    tileStepX: numberValue(captureTileStepX.value, settings.raster.tileStepX),
+    tileStepY: numberValue(captureTileStepY.value, settings.raster.tileStepY),
+    tilesX: Math.max(1, intValue(captureTilesX.value, settings.raster.tilesX)),
+    tilesY: Math.max(1, intValue(captureTilesY.value, settings.raster.tilesY)),
+    snakeRaster: !!captureSnakeRaster.checked,
+    filenamePattern: normalizeRasterFilenamePattern(captureFilenamePattern.value)
+  };
+}
+
+function makeRasterFilename(pattern, project, tileX, tileY, imageIndex) {
+  const index = Math.max(0, intValue(imageIndex, 0));
+
+  const replacements = {
+    project,
+    X: String(tileX),
+    Y: String(tileY),
+    x: String(tileX),
+    y: String(tileY),
+    col: String(tileX),
+    row: String(tileY),
+    n: String(index),
+    index: String(index)
+  };
+
+  let name = normalizeRasterFilenamePattern(pattern).replace(
+    /\{(project|X|Y|x|y|col|row|n|index)\}/g,
+    (all, key) => replacements[key] ?? all
+  );
+
+  // Support {nn}, {nnn}, {nnnn}, etc. The number of n characters is
+  // the zero-padding width. Example: {nnnn} -> 0000, 0001, 0002...
+  name = name.replace(/\{(n{2,})\}/g, (all, ns) => {
+    return String(index).padStart(ns.length, "0");
+  });
+
+  name = sanitizeToken(name, `${project}_tile_x${tileX}_y${tileY}.jpg`);
+
+  if (!name.toLowerCase().endsWith(".jpg") && !name.toLowerCase().endsWith(".jpeg")) {
+    name += ".jpg";
+  }
+
+  return name;
+}
+
+function buildRasterPlan(captureSettings, origin) {
+  const plan = [];
+
+  for (let row = 0; row < captureSettings.tilesY; row++) {
+    const cols = [];
+
+    for (let col = 0; col < captureSettings.tilesX; col++) {
+      cols.push(col);
+    }
+
+    if (captureSettings.snakeRaster && row % 2 === 1) {
+      cols.reverse();
+    }
+
+    for (const col of cols) {
+      plan.push({
+        tileX: col,
+        tileY: row,
+        x: Number(origin.x || 0) + (col * captureSettings.tileStepX),
+        y: Number(origin.y || 0) + (row * captureSettings.tileStepY)
+      });
+    }
+  }
+
+  return plan;
+}
+
+async function movePrinterAbsoluteXY(x, y) {
+  const res = await fetch("/api/printer/move-absolute", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      x,
+      y,
+      safeZ: safePrinterZ(),
+      feedrateXY: settings.printer.feedrateXY,
+      feedrateZ: settings.printer.feedrateZ,
+      lineEnding: settings.printer.lineEnding
+    })
+  });
+
+  const json = await res.json();
+
+  if (!json.ok) {
+    throw new Error(json.error || "Move failed");
+  }
+
+  setPrinterUi(json);
+  return json.xyz;
+}
+
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 
 function setGridVisible(visible, persist = true) {
   gridVisible = !!visible;
@@ -648,11 +812,17 @@ function makeSnapshotName(width, height) {
   return `${settings.camera.snapshotPrefix}-${Date.now()}-${width}x${height}.jpg`;
 }
 
-async function takeSnapshot() {
-  if (!stream) return;
+function captureJpegDataUrl() {
+  if (!stream) {
+    throw new Error("Camera is not running");
+  }
 
   const w = video.videoWidth;
   const h = video.videoHeight;
+
+  if (!w || !h) {
+    throw new Error("Camera frame is not ready");
+  }
 
   canvas.width = w;
   canvas.height = h;
@@ -661,34 +831,138 @@ async function takeSnapshot() {
   ctx.drawImage(video, 0, 0, w, h);
 
   const quality = clampNumber(settings.camera.jpegQuality, 0.1, 1, 0.95);
-  const imageData = canvas.toDataURL("image/jpeg", quality);
-  const name = makeSnapshotName(w, h);
 
-  setStatus("saving snapshot...");
+  return {
+    imageData: canvas.toDataURL("image/jpeg", quality),
+    width: w,
+    height: h
+  };
+}
+
+async function saveSnapshotImage(name, folder) {
+  const shot = captureJpegDataUrl();
+
+  const res = await fetch("/api/snapshot", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      imageData: shot.imageData,
+      name,
+      folder
+    })
+  });
+
+  const json = await res.json();
+
+  if (!json.ok) {
+    throw new Error(json.error || "Snapshot save failed");
+  }
+
+  return json.file;
+}
+
+async function takeSnapshot() {
+  if (!stream) return;
 
   try {
-    const res = await fetch("/api/snapshot", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        imageData,
-        name,
-        folder: settings.camera.snapshotFolder
-      })
-    });
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    const name = makeSnapshotName(w, h);
 
-    const json = await res.json();
+    setStatus("saving snapshot...");
 
-    if (json.ok) {
-      setStatus(`saved ${json.file}`);
-    } else {
-      setStatus(`snapshot failed: ${json.error}`);
-    }
+    const file = await saveSnapshotImage(name, settings.camera.snapshotFolder);
+    setStatus(`saved ${file}`);
   } catch (err) {
     console.error(err);
     setStatus("snapshot error: " + err.message);
+  }
+}
+
+async function startRasterCapture(event) {
+  event.preventDefault();
+
+  if (rasterRunning) return;
+
+  try {
+    await refreshPrinterStatus();
+
+    if (!printerConnected) {
+      throw new Error("Printer is not connected");
+    }
+
+    if (!stream) {
+      throw new Error("Camera is not running");
+    }
+
+    const captureSettings = readCaptureForm();
+    closeCaptureDialog();
+
+    rasterRunning = true;
+    if (startCaptureBtn) startCaptureBtn.disabled = true;
+    if (snapBtn) snapBtn.disabled = true;
+
+    const statusRes = await fetch(`/api/printer/status?${new URLSearchParams({
+      lineEnding: settings.printer.lineEnding
+    }).toString()}`);
+    const statusJson = await statusRes.json();
+
+    if (!statusJson.ok) {
+      throw new Error(statusJson.error || "Could not read printer position");
+    }
+
+    const origin = statusJson.xyz || { x: 0, y: 0, z: safePrinterZ() };
+    const plan = buildRasterPlan(captureSettings, origin);
+    const total = plan.length;
+
+    setStatus(
+      `raster start: ${captureSettings.tilesX}x${captureSettings.tilesY}, ` +
+      `${total} tiles, origin X${Number(origin.x || 0).toFixed(2)} ` +
+      `Y${Number(origin.y || 0).toFixed(2)}`
+    );
+
+    for (let i = 0; i < plan.length; i++) {
+      const tile = plan[i];
+      const stepText = `${i + 1}/${total}`;
+
+      setStatus(
+        `tile ${stepText}: move to X${tile.x.toFixed(2)} ` +
+        `Y${tile.y.toFixed(2)}`
+      );
+
+      await movePrinterAbsoluteXY(tile.x, tile.y);
+
+      const settle = Math.max(0, intValue(settings.printer.settleDelayMs, 0));
+      if (settle > 0) {
+        setStatus(`tile ${stepText}: settling ${settle}ms...`);
+        await delay(settle);
+      }
+
+      const name = makeRasterFilename(
+        captureSettings.filenamePattern,
+        captureSettings.project,
+        tile.tileX,
+        tile.tileY,
+        i
+      );
+
+      setStatus(`tile ${stepText}: saving ${name}...`);
+      const file = await saveSnapshotImage(name, captureSettings.project);
+      setStatus(`tile ${stepText}: saved ${file}`);
+    }
+
+    setStatus(`raster complete: saved ${total} tiles in ${captureSettings.project}`);
+    await refreshPrinterStatus();
+  } catch (err) {
+    console.error(err);
+    setStatus("raster failed: " + err.message);
+    await refreshPrinterStatus();
+  } finally {
+    rasterRunning = false;
+    if (startCaptureBtn) startCaptureBtn.disabled = false;
+    if (snapBtn) snapBtn.disabled = !stream;
   }
 }
 
@@ -984,6 +1258,10 @@ async function jog(axis, direction) {
 }
 
 snapBtn.addEventListener("click", takeSnapshot);
+if (startCaptureBtn) startCaptureBtn.addEventListener("click", openCaptureDialog);
+if (captureCloseBtn) captureCloseBtn.addEventListener("click", closeCaptureDialog);
+if (captureCancelBtn) captureCancelBtn.addEventListener("click", closeCaptureDialog);
+if (captureForm) captureForm.addEventListener("submit", startRasterCapture);
 connectPrinterBtn.addEventListener("click", togglePrinterConnection);
 homeAllBtn.addEventListener("click", homeAllPrinter);
 homeSafeBtn.addEventListener("click", homeSafePrinter);
@@ -1012,6 +1290,14 @@ settingsOverlay.addEventListener("click", event => {
     closeSettings();
   }
 });
+
+if (captureOverlay) {
+  captureOverlay.addEventListener("click", event => {
+    if (event.target === captureOverlay && !rasterRunning) {
+      closeCaptureDialog();
+    }
+  });
+}
 
 settingsForm.addEventListener("submit", event => {
   event.preventDefault();

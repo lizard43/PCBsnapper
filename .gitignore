@@ -1,4 +1,6 @@
 # Logs
+fiji-*.zip
+Fiji/
 snapshots/
 package-lock.json
 

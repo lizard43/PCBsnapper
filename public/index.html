@@ -35,6 +35,7 @@
 
       <button id="connectPrinterBtn">Connect</button>
       <button id="snapBtn" disabled>Snapshot</button>
+      <button id="startCaptureBtn" type="button">Start Capture</button>
       <button id="gridBtn" class="grid-btn" type="button" aria-pressed="false" title="Show UI grid overlay">Grid</button>
 
       <button id="settingsBtn" class="settings-btn" title="Settings" aria-label="Settings">⚙</button>
@@ -219,6 +220,65 @@
           <span class="modal-spacer"></span>
           <button type="button" id="settingsCancelBtn">Cancel</button>
           <button type="submit" id="settingsSaveBtn">Save</button>
+        </footer>
+      </form>
+    </section>
+  </div>
+
+
+  <div id="captureOverlay" class="modal-overlay hidden">
+    <section class="settings-modal capture-modal">
+      <header class="modal-header">
+        <h2>Start Raster Capture</h2>
+        <button id="captureCloseBtn" class="icon-btn" type="button">×</button>
+      </header>
+
+      <form id="captureForm">
+        <div class="capture-grid">
+          <label>
+            Project name / snapshot folder
+            <input id="captureProjectName" type="text" placeholder="pcb_project" required>
+          </label>
+
+          <label>
+            Tile step X
+            <input id="captureTileStepX" type="number" step="0.01" required>
+          </label>
+
+          <label>
+            Tile step Y
+            <input id="captureTileStepY" type="number" step="0.01" required>
+          </label>
+
+          <label>
+            Tiles X count
+            <input id="captureTilesX" type="number" min="1" step="1" required>
+          </label>
+
+          <label>
+            Tiles Y count
+            <input id="captureTilesY" type="number" min="1" step="1" required>
+          </label>
+
+          <label class="checkbox-row capture-checkbox-row">
+            <input id="captureSnakeRaster" type="checkbox">
+            Snake raster
+          </label>
+
+          <label class="wide-field">
+            Snapshot filename pattern
+            <input id="captureFilenamePattern" type="text" placeholder="{project}_tile_x{X}_y{Y}.jpg" required>
+          </label>
+        </div>
+
+        <p class="capture-note">
+          Start position is the current printer X/Y. Tile numbers in the filename are zero-based.
+        </p>
+
+        <footer class="modal-actions">
+          <span class="modal-spacer"></span>
+          <button type="button" id="captureCancelBtn">Cancel</button>
+          <button type="submit" id="captureStartRunBtn">Start Scanning</button>
         </footer>
       </form>
     </section>
