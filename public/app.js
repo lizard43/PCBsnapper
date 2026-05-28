@@ -18,6 +18,7 @@ const captureFarX = document.getElementById("captureFarX");
 const captureFarY = document.getElementById("captureFarY");
 const captureTileCountPreview = document.getElementById("captureTileCountPreview");
 const captureSnakeRaster = document.getElementById("captureSnakeRaster");
+const capturePauseSeconds = document.getElementById("capturePauseSeconds");
 const captureFilenamePattern = document.getElementById("captureFilenamePattern");
 const gridOverlay = document.getElementById("gridOverlay");
 const comLogPane = document.getElementById("comLogPane");
@@ -94,6 +95,7 @@ const DEFAULT_SETTINGS = {
     tilesX: 3,
     tilesY: 3,
     snakeRaster: true,
+    capturePauseSeconds: 2,
     filenamePattern: "{project}_tile_x{X}_y{Y}.jpg"
   },
   debug: {
@@ -237,6 +239,8 @@ function loadSettingsForm() {
   document.getElementById("setTilesX").value = settings.raster.tilesX;
   document.getElementById("setTilesY").value = settings.raster.tilesY;
   document.getElementById("setSnakeRaster").checked = settings.raster.snakeRaster;
+  document.getElementById("setCapturePauseSeconds").value =
+    settings.raster.capturePauseSeconds ?? DEFAULT_SETTINGS.raster.capturePauseSeconds;
   document.getElementById("setFilenamePattern").value =
     normalizeRasterFilenamePattern(settings.raster.filenamePattern);
 
@@ -287,6 +291,8 @@ function readSettingsForm() {
     intValue(document.getElementById("setTilesY").value, 3);
   settings.raster.snakeRaster =
     document.getElementById("setSnakeRaster").checked;
+  settings.raster.capturePauseSeconds =
+    clampNumber(document.getElementById("setCapturePauseSeconds").value, 0, 3600, DEFAULT_SETTINGS.raster.capturePauseSeconds);
   settings.raster.filenamePattern =
     normalizeRasterFilenamePattern(document.getElementById("setFilenamePattern").value);
 
@@ -400,6 +406,7 @@ function openCaptureDialog() {
   requireEl(captureTilesX, "captureTilesX");
   requireEl(captureTilesY, "captureTilesY");
   requireEl(captureSnakeRaster, "captureSnakeRaster");
+  requireEl(capturePauseSeconds, "capturePauseSeconds");
   requireEl(captureFilenamePattern, "captureFilenamePattern");
 
   if (missing.length) {
@@ -415,6 +422,8 @@ function openCaptureDialog() {
   captureTilesX.value = settings?.raster?.tilesX ?? DEFAULT_SETTINGS.raster.tilesX;
   captureTilesY.value = settings?.raster?.tilesY ?? DEFAULT_SETTINGS.raster.tilesY;
   captureSnakeRaster.checked = !!(settings?.raster?.snakeRaster ?? DEFAULT_SETTINGS.raster.snakeRaster);
+  capturePauseSeconds.value =
+    settings?.raster?.capturePauseSeconds ?? DEFAULT_SETTINGS.raster.capturePauseSeconds;
   captureFilenamePattern.value =
     settings?.raster?.filenamePattern || "{project}_tile_x{X}_y{Y}.jpg";
 
@@ -460,6 +469,12 @@ function readCaptureForm() {
     tilesX: Math.max(1, intValue(captureTilesX?.value, settings?.raster?.tilesX ?? DEFAULT_SETTINGS.raster.tilesX)),
     tilesY: Math.max(1, intValue(captureTilesY?.value, settings?.raster?.tilesY ?? DEFAULT_SETTINGS.raster.tilesY)),
     snakeRaster: !!(captureSnakeRaster?.checked ?? settings?.raster?.snakeRaster ?? DEFAULT_SETTINGS.raster.snakeRaster),
+    capturePauseSeconds: clampNumber(
+      capturePauseSeconds?.value,
+      0,
+      3600,
+      settings?.raster?.capturePauseSeconds ?? DEFAULT_SETTINGS.raster.capturePauseSeconds
+    ),
     filenamePattern: normalizeRasterFilenamePattern(captureFilenamePattern?.value ?? settings?.raster?.filenamePattern)
   };
 }
@@ -1099,25 +1114,35 @@ async function startRasterCapture(event) {
       `Y${Number(origin.y || 0).toFixed(2)}`
     );
 
+    const pauseMs = Math.max(0, Number(captureSettings.capturePauseSeconds || 0) * 1000);
+
     for (let i = 0; i < plan.length; i++) {
       throwIfRasterStopped();
 
       const tile = plan[i];
       const stepText = `${i + 1}/${total}`;
 
-      setStatus(
-        `tile ${stepText}: move to X${tile.x.toFixed(2)} ` +
-        `Y${tile.y.toFixed(2)}`
-      );
+      if (i === 0) {
+        setStatus(
+          `tile ${stepText}: capturing start position ` +
+          `X${tile.x.toFixed(2)} Y${tile.y.toFixed(2)}`
+        );
+      } else {
+        setStatus(
+          `tile ${stepText}: move to X${tile.x.toFixed(2)} ` +
+          `Y${tile.y.toFixed(2)}`
+        );
 
-      throwIfRasterStopped();
-      await movePrinterAbsoluteXY(tile.x, tile.y);
-      throwIfRasterStopped();
+        throwIfRasterStopped();
+        await movePrinterAbsoluteXY(tile.x, tile.y);
+        throwIfRasterStopped();
 
-      const settle = Math.max(0, intValue(settings.printer.settleDelayMs, 0));
-      if (settle > 0) {
-        setStatus(`tile ${stepText}: settling ${settle}ms...`);
-        await cancellableDelay(settle);
+        if (pauseMs > 0) {
+          setStatus(
+            `tile ${stepText}: pause ${captureSettings.capturePauseSeconds}s before image...`
+          );
+          await cancellableDelay(pauseMs);
+        }
       }
 
       throwIfRasterStopped();

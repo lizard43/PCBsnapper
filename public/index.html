@@ -203,6 +203,11 @@
           </label>
 
           <label>
+            Pause before each moved tile image (seconds)
+            <input id="setCapturePauseSeconds" type="number" min="0" step="0.1">
+          </label>
+
+          <label>
             Snapshot filename pattern
             <input id="setFilenamePattern" type="text">
           </label>
@@ -274,6 +279,11 @@
             Snake raster
           </label>
 
+          <label>
+            Pause before each moved tile image (seconds)
+            <input id="capturePauseSeconds" type="number" min="0" step="0.1" required>
+          </label>
+
           <label class="wide-field">
             Snapshot filename pattern
             <input id="captureFilenamePattern" type="text" placeholder="{project}_tile_x{X}_y{Y}.jpg" required>
@@ -281,8 +291,8 @@
         </div>
 
         <p class="capture-note">
-          Start position is the current printer X/Y. The displayed count previews from Safe X/Y until the scan starts,
-          then it recalculates from the actual printer X/Y. Tile numbers and image numbers are zero-based.
+          Start position is the current printer X/Y/Z. The first image is taken at that starting position.
+          After that, each tile moves, pauses, then captures. Tile numbers and image numbers are zero-based.
         </p>
 
         <footer class="modal-actions">
