@@ -55,6 +55,8 @@ const LOG_POLL_MS = 500;
 let lastLogSeq = 0;
 let logPollTimer = null;
 let logDragging = false;
+let logBackendDown = false;
+let logPollDelayMs = LOG_POLL_MS;
 let gridVisible = localStorage.getItem(STORAGE_KEY_GRID_VISIBLE) === "1";
 
 const VIDEO_MODES = [
@@ -102,8 +104,10 @@ const DEFAULT_SETTINGS = {
 function updateToolbarStatus() {
   if (!printerStatus) return;
 
-  const printerText = printerStatus.dataset.baseText || "printer: disconnected";
-  printerStatus.textContent = `${printerText} · ${cameraStatusText}`;
+  const printerText =
+    printerStatus.dataset.baseText || "printer: disconnected";
+
+  printerStatus.textContent = printerText;
 }
 
 function clone(obj) {
@@ -698,23 +702,47 @@ async function pollComLog() {
       throw new Error(json.error || "log endpoint returned ok:false");
     }
 
+    if (logBackendDown) {
+      logBackendDown = false;
+      appendLogLines([{ text: "[UI] Backend log connection restored" }]);
+    }
+
     appendLogLines(json.lines);
     lastLogSeq = Number(json.nextSeq || lastLogSeq);
+    logPollDelayMs = LOG_POLL_MS;
   } catch (err) {
-    appendLogLines([{ text: `[UI LOG ERROR] /api/logs failed: ${err.message}` }]);
+    if (!logBackendDown) {
+      logBackendDown = true;
+      appendLogLines([{
+        text: `[UI] Backend log unavailable; polling slowed until server returns (${err.message})`
+      }]);
+    }
+
+    logPollDelayMs = 10000;
   }
+}
+
+function scheduleNextComLogPoll() {
+  if (logPollTimer) {
+    clearTimeout(logPollTimer);
+  }
+
+  logPollTimer = setTimeout(async () => {
+    await pollComLog();
+    scheduleNextComLogPoll();
+  }, logPollDelayMs);
 }
 
 function startComLogPolling() {
   restoreLogPaneHeight();
   setupLogResizer();
-  pollComLog();
 
   if (logPollTimer) {
-    clearInterval(logPollTimer);
+    clearTimeout(logPollTimer);
+    logPollTimer = null;
   }
 
-  logPollTimer = setInterval(pollComLog, LOG_POLL_MS);
+  pollComLog().finally(scheduleNextComLogPoll);
 }
 
 function setupTabs() {
@@ -1077,8 +1105,15 @@ function setToolbarControlsEnabled(enabled) {
   if (homeAllBtn) homeAllBtn.disabled = !enabled;
   if (homeSafeBtn) homeSafeBtn.disabled = !enabled;
   if (jogStepSelect) jogStepSelect.disabled = !enabled;
-  if (startCaptureBtn) startCaptureBtn.disabled = !enabled || rasterRunning;
-  if (gridBtn) gridBtn.disabled = !enabled;
+
+  if (startCaptureBtn) {
+    startCaptureBtn.disabled = !enabled || rasterRunning;
+  }
+
+  // Grid is a UI overlay only. It must remain available even when printer/camera are offline.
+  if (gridBtn) {
+    gridBtn.disabled = false;
+  }
 
   document.querySelectorAll(".jog-btn").forEach(btn => {
     btn.disabled = !enabled;
@@ -1375,7 +1410,15 @@ async function jog(axis, direction) {
 }
 
 snapBtn.addEventListener("click", takeSnapshot);
-if (startCaptureBtn) startCaptureBtn.addEventListener("click", openCaptureDialog);
+if (startCaptureBtn) {
+  startCaptureBtn.addEventListener("click", () => {
+    if (startCaptureBtn.disabled || !printerConnected || rasterRunning) {
+      return;
+    }
+
+    openCaptureDialog();
+  });
+}
 if (captureCloseBtn) captureCloseBtn.addEventListener("click", closeCaptureDialog);
 if (captureCancelBtn) captureCancelBtn.addEventListener("click", closeCaptureDialog);
 if (captureForm) captureForm.addEventListener("submit", startRasterCapture);

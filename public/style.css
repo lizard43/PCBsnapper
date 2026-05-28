@@ -150,9 +150,16 @@ select {
 }
 
 .grid-btn.active {
-  background: #303030;
-  border-color: #555;
-  color: #ddd;
+  background: #2a2a2a;
+  border-color: #7a7a7a;
+  color: #f0f0f0;
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.65);
+}
+
+.grid-btn.active:hover:not(:disabled) {
+  background: #323232;
+  border-color: #8a8a8a;
 }
 
 /* =========================
