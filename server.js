@@ -97,6 +97,17 @@ app.get("/api/logs", (req, res) => {
   });
 });
 
+app.post("/api/logs/clear", (req, res) => {
+  logLines.length = 0;
+  logSeq = 0;
+
+  res.set("Cache-Control", "no-store");
+  res.json({
+    ok: true,
+    nextSeq: logSeq
+  });
+});
+
 // This is only the last position reported by the printer via M114.
 // Do not update this from browser math or from commanded target positions.
 let xyz = { x: 0, y: 0, z: 0 };
@@ -317,6 +328,10 @@ app.post("/api/printer/connect", async (req, res) => {
       };
       needsHome = false;
 
+      addLog(
+        `[INFO] Printer connected on ${printerInfo.comPort} @ ${printerInfo.baudRate} (dry run)`
+      );
+
       return res.json(makePrinterState());
     }
 
@@ -359,6 +374,9 @@ app.post("/api/printer/connect", async (req, res) => {
       baudRate: Number(baudRate || 115200)
     };
 
+    addLog(
+      `[INFO] Printer connected on ${printerInfo.comPort} @ ${printerInfo.baudRate}`
+    );
     addLog("[INFO] Serial opened");
     addLog("[INFO] Waiting for printer boot/reset...");
 
@@ -406,6 +424,8 @@ app.post("/api/printer/connect", async (req, res) => {
 
 app.post("/api/printer/disconnect", async (req, res) => {
   try {
+    const disconnectedPort = printerInfo?.comPort || "unknown";
+
     if (printerPort?.isOpen) {
       await new Promise(resolve => printerPort.close(() => resolve()));
     }
@@ -417,6 +437,8 @@ app.post("/api/printer/disconnect", async (req, res) => {
     printerInfo = null;
     needsHome = false;
     commandQueue = Promise.resolve();
+
+    addLog(`[INFO] Printer disconnected from ${disconnectedPort}`);
 
     res.json(makePrinterState());
 

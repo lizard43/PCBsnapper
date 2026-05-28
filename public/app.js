@@ -777,6 +777,46 @@ function appendLogLines(lines) {
   }
 }
 
+function clearComLogWindow() {
+  if (comLog) {
+    comLog.textContent = "";
+  }
+
+  if (comLogPane) {
+    comLogPane.scrollTop = 0;
+  }
+
+  lastLogSeq = 0;
+  logBackendDown = false;
+  logPollDelayMs = LOG_POLL_MS;
+}
+
+async function clearBackendComLog() {
+  clearComLogWindow();
+
+  try {
+    const res = await fetch("/api/logs/clear", {
+      method: "POST",
+      cache: "no-store"
+    });
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
+    const json = await res.json();
+
+    if (!json.ok) {
+      throw new Error(json.error || "log clear returned ok:false");
+    }
+
+    lastLogSeq = Number(json.nextSeq || 0);
+  } catch (err) {
+    clearComLogWindow();
+    console.warn("[UI] Could not clear backend COM log buffer", err);
+  }
+}
+
 async function pollComLog() {
   try {
     const res = await fetch(`/api/logs?since=${lastLogSeq}`, { cache: "no-store" });
@@ -1319,6 +1359,8 @@ async function refreshPrinterStatus() {
 
 async function connectPrinter() {
   try {
+    await clearBackendComLog();
+
     setPrinterUi({
       connected: false,
       opening: true,
@@ -1351,6 +1393,7 @@ async function connectPrinter() {
 
     setPrinterUi(json);
     setStatus(json.warning || "printer connected");
+    await pollComLog();
   } catch (err) {
     console.error(err);
     setPrinterUi({
