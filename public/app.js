@@ -45,6 +45,7 @@ let cameraDeviceId = null;
 let settings = null;
 let printerConnected = false;
 let printerOpening = false;
+let printerDryRun = false;
 let cameraStatusText = "cam: disconnected";
 let rasterRunning = false;
 let rasterCancelRequested = false;
@@ -1098,13 +1099,56 @@ function makeSnapshotName(width, height, imageFormat = settings.camera.snapshotF
   return `${settings.camera.snapshotPrefix}-${Date.now()}-${width}x${height}.${imageFormatExtension(imageFormat)}`;
 }
 
+function drawDryRunSnapshot(ctx, w, h) {
+  const now = new Date().toLocaleString();
+  const pos = currentPrinterXyz || { x: 0, y: 0, z: 0 };
+
+  ctx.fillStyle = "#202020";
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.strokeStyle = "#505050";
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= w; x += 64) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, h);
+    ctx.stroke();
+  }
+  for (let y = 0; y <= h; y += 64) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(w, y);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = "#c03030";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(w / 2, 0);
+  ctx.lineTo(w / 2, h);
+  ctx.moveTo(0, h / 2);
+  ctx.lineTo(w, h / 2);
+  ctx.stroke();
+
+  ctx.fillStyle = "#f0f0f0";
+  ctx.font = "28px Consolas, monospace";
+  ctx.fillText("PCBsnapper DRY RUN", 32, 54);
+
+  ctx.font = "20px Consolas, monospace";
+  ctx.fillText(`simulated camera frame`, 32, 92);
+  ctx.fillText(`X${Number(pos.x || 0).toFixed(0)} Y${Number(pos.y || 0).toFixed(0)} Z${Number(pos.z || 0).toFixed(0)}`, 32, 126);
+  ctx.fillText(now, 32, 160);
+}
+
 function captureImageDataUrl(imageFormat = settings.camera.snapshotFormat) {
-  if (!stream) {
+  const drySim = printerDryRun && !stream;
+
+  if (!stream && !drySim) {
     throw new Error("Camera is not running");
   }
 
-  const w = video.videoWidth;
-  const h = video.videoHeight;
+  const w = drySim ? 1280 : video.videoWidth;
+  const h = drySim ? 720 : video.videoHeight;
 
   if (!w || !h) {
     throw new Error("Camera frame is not ready");
@@ -1114,7 +1158,12 @@ function captureImageDataUrl(imageFormat = settings.camera.snapshotFormat) {
   canvas.height = h;
 
   const ctx = canvas.getContext("2d");
-  ctx.drawImage(video, 0, 0, w, h);
+
+  if (drySim) {
+    drawDryRunSnapshot(ctx, w, h);
+  } else {
+    ctx.drawImage(video, 0, 0, w, h);
+  }
 
   const format = normalizeImageFormat(imageFormat);
   const quality = clampNumber(settings.camera.jpegQuality, 0.1, 1, 0.95);
@@ -1127,7 +1176,8 @@ function captureImageDataUrl(imageFormat = settings.camera.snapshotFormat) {
     imageData,
     width: w,
     height: h,
-    format
+    format,
+    simulated: drySim
   };
 }
 
@@ -1187,7 +1237,7 @@ async function startRasterCapture(event) {
       throw new Error("Printer is not connected");
     }
 
-    if (!stream) {
+    if (!stream && !printerDryRun) {
       throw new Error("Camera is not running");
     }
 
@@ -1307,7 +1357,7 @@ function setToolbarControlsEnabled(enabled) {
   });
 
   if (snapBtn) {
-    snapBtn.disabled = !enabled || !stream;
+    snapBtn.disabled = !enabled || (!stream && !printerDryRun);
   }
 }
 
@@ -1332,6 +1382,7 @@ function setPrinterUi(state) {
   printerOpening = !!state.opening;
 
   const dry = !!state.dryRun;
+  printerDryRun = dry;
   const needsHome = !!state.needsHome;
   const info = state.printerInfo || {};
   const portLabel = info.comPort || settings.printer.comPort;
@@ -1377,6 +1428,7 @@ async function refreshPrinterStatus() {
 
     setPrinterUi(json);
   } catch {
+    printerDryRun = false;
     printerStatus.dataset.baseText = "printer: unknown";
     updateToolbarStatus();
     connectPrinterBtn.textContent = "Connect";

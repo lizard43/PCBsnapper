@@ -764,18 +764,20 @@ app.post("/api/snapshot", (req, res) => {
   try {
     const { imageData, name, folder } = req.body;
 
-    if (
-      !imageData ||
-      !imageData.startsWith("data:image/jpeg;base64,")
-    ) {
+    const match = String(imageData || "").match(/^data:image\/(jpeg|png);base64,(.+)$/);
+
+    if (!match) {
       return res.status(400).json({
         ok: false,
-        error: "Expected JPEG data URL"
+        error: "Expected JPEG or PNG data URL"
       });
     }
 
+    const imageType = match[1];
+    const imageExt = imageType === "png" ? "png" : "jpg";
+
     const fallbackName =
-      `snap-${new Date().toISOString().replace(/[:.]/g, "-")}.jpg`;
+      `snap-${new Date().toISOString().replace(/[:.]/g, "-")}.${imageExt}`;
 
     const safeFolder = sanitizePathPart(folder, "");
     const safeName = sanitizePathPart(name || fallbackName, fallbackName);
@@ -786,14 +788,9 @@ app.post("/api/snapshot", (req, res) => {
 
     const filepath = path.join(targetDir, safeName);
 
-    const base64 = imageData.replace(
-      /^data:image\/jpeg;base64,/,
-      ""
-    );
-
     fs.writeFileSync(
       filepath,
-      Buffer.from(base64, "base64")
+      Buffer.from(match[2], "base64")
     );
 
     addLog(`[SNAPSHOT] ${filepath}`);
