@@ -20,6 +20,7 @@ const captureTileCountPreview = document.getElementById("captureTileCountPreview
 const captureSnakeRaster = document.getElementById("captureSnakeRaster");
 const capturePauseSeconds = document.getElementById("capturePauseSeconds");
 const captureFilenamePattern = document.getElementById("captureFilenamePattern");
+const captureImageFormat = document.getElementById("captureImageFormat");
 const gridOverlay = document.getElementById("gridOverlay");
 const comLogPane = document.getElementById("comLogPane");
 const comLog = document.getElementById("comLog");
@@ -74,6 +75,7 @@ const DEFAULT_SETTINGS = {
     nameContains: "HY-6110",
     defaultResolution: "3840x2160",
     jpegQuality: 0.95,
+    snapshotFormat: "jpg",
     snapshotFolder: "",
     snapshotPrefix: "snap"
   },
@@ -220,6 +222,7 @@ function loadSettingsForm() {
   document.getElementById("setCameraName").value = settings.camera.nameContains;
   document.getElementById("setDefaultResolution").value = settings.camera.defaultResolution;
   document.getElementById("setJpegQuality").value = settings.camera.jpegQuality;
+  document.getElementById("setSnapshotFormat").value = normalizeImageFormat(settings.camera.snapshotFormat);
   document.getElementById("setSnapshotFolder").value = settings.camera.snapshotFolder;
   document.getElementById("setSnapshotPrefix").value = settings.camera.snapshotPrefix;
 
@@ -255,6 +258,8 @@ function readSettingsForm() {
     document.getElementById("setDefaultResolution").value;
   settings.camera.jpegQuality =
     clampNumber(document.getElementById("setJpegQuality").value, 0.1, 1, 0.95);
+  settings.camera.snapshotFormat =
+    normalizeImageFormat(document.getElementById("setSnapshotFormat").value);
   settings.camera.snapshotFolder =
     document.getElementById("setSnapshotFolder").value.trim();
   settings.camera.snapshotPrefix =
@@ -309,6 +314,29 @@ function openSettings() {
 
 function closeSettings() {
   settingsOverlay.classList.add("hidden");
+}
+
+function normalizeImageFormat(value) {
+  const fmt = String(value || "").trim().toLowerCase();
+
+  if (fmt === "png") return "png";
+  return "jpg";
+}
+
+function imageFormatExtension(format) {
+  return normalizeImageFormat(format) === "png" ? "png" : "jpg";
+}
+
+function imageFormatMime(format) {
+  return normalizeImageFormat(format) === "png" ? "image/png" : "image/jpeg";
+}
+
+function replaceImageExtension(name, format) {
+  const ext = imageFormatExtension(format);
+  const safeName = String(name || "").trim();
+  const withoutKnownExt = safeName.replace(/\.(jpe?g|png)$/i, "");
+
+  return `${withoutKnownExt}.${ext}`;
 }
 
 function setCaptureCountPreview(text) {
@@ -408,6 +436,7 @@ function openCaptureDialog() {
   requireEl(captureSnakeRaster, "captureSnakeRaster");
   requireEl(capturePauseSeconds, "capturePauseSeconds");
   requireEl(captureFilenamePattern, "captureFilenamePattern");
+  requireEl(captureImageFormat, "captureImageFormat");
 
   if (missing.length) {
     const msg = `capture dialog markup is missing: ${missing.join(", ")}`;
@@ -424,8 +453,11 @@ function openCaptureDialog() {
   captureSnakeRaster.checked = !!(settings?.raster?.snakeRaster ?? DEFAULT_SETTINGS.raster.snakeRaster);
   capturePauseSeconds.value =
     settings?.raster?.capturePauseSeconds ?? DEFAULT_SETTINGS.raster.capturePauseSeconds;
-  captureFilenamePattern.value =
-    settings?.raster?.filenamePattern || "{project}_tile_x{X}_y{Y}.jpg";
+  captureImageFormat.value = normalizeImageFormat(settings?.camera?.snapshotFormat);
+  captureFilenamePattern.value = replaceImageExtension(
+    settings?.raster?.filenamePattern || "{project}_tile_x{X}_y{Y}.jpg",
+    captureImageFormat.value
+  );
 
   updateCaptureFarFromCounts();
 
@@ -475,11 +507,12 @@ function readCaptureForm() {
       3600,
       settings?.raster?.capturePauseSeconds ?? DEFAULT_SETTINGS.raster.capturePauseSeconds
     ),
-    filenamePattern: normalizeRasterFilenamePattern(captureFilenamePattern?.value ?? settings?.raster?.filenamePattern)
+    filenamePattern: normalizeRasterFilenamePattern(captureFilenamePattern?.value ?? settings?.raster?.filenamePattern),
+    imageFormat: normalizeImageFormat(captureImageFormat?.value ?? settings?.camera?.snapshotFormat)
   };
 }
 
-function makeRasterFilename(pattern, project, tileX, tileY, imageIndex) {
+function makeRasterFilename(pattern, project, tileX, tileY, imageIndex, imageFormat = "jpg") {
   const index = Math.max(0, intValue(imageIndex, 0));
 
   const replacements = {
@@ -503,13 +536,9 @@ function makeRasterFilename(pattern, project, tileX, tileY, imageIndex) {
     return String(index).padStart(ns.length, "0");
   });
 
-  name = sanitizeToken(name, `${project}_tile_x${tileX}_y${tileY}.jpg`);
+  name = sanitizeToken(name, `${project}_tile_x${tileX}_y${tileY}.${imageFormatExtension(imageFormat)}`);
 
-  if (!name.toLowerCase().endsWith(".jpg") && !name.toLowerCase().endsWith(".jpeg")) {
-    name += ".jpg";
-  }
-
-  return name;
+  return replaceImageExtension(name, imageFormat);
 }
 
 function buildRasterPlan(captureSettings, origin) {
@@ -998,11 +1027,11 @@ async function startCamera() {
   }
 }
 
-function makeSnapshotName(width, height) {
-  return `${settings.camera.snapshotPrefix}-${Date.now()}-${width}x${height}.jpg`;
+function makeSnapshotName(width, height, imageFormat = settings.camera.snapshotFormat) {
+  return `${settings.camera.snapshotPrefix}-${Date.now()}-${width}x${height}.${imageFormatExtension(imageFormat)}`;
 }
 
-function captureJpegDataUrl() {
+function captureImageDataUrl(imageFormat = settings.camera.snapshotFormat) {
   if (!stream) {
     throw new Error("Camera is not running");
   }
@@ -1020,17 +1049,24 @@ function captureJpegDataUrl() {
   const ctx = canvas.getContext("2d");
   ctx.drawImage(video, 0, 0, w, h);
 
+  const format = normalizeImageFormat(imageFormat);
   const quality = clampNumber(settings.camera.jpegQuality, 0.1, 1, 0.95);
+  const mimeType = imageFormatMime(format);
+  const imageData = format === "jpg"
+    ? canvas.toDataURL(mimeType, quality)
+    : canvas.toDataURL(mimeType);
 
   return {
-    imageData: canvas.toDataURL("image/jpeg", quality),
+    imageData,
     width: w,
-    height: h
+    height: h,
+    format
   };
 }
 
-async function saveSnapshotImage(name, folder) {
-  const shot = captureJpegDataUrl();
+async function saveSnapshotImage(name, folder, imageFormat = settings.camera.snapshotFormat) {
+  const format = normalizeImageFormat(imageFormat);
+  const shot = captureImageDataUrl(format);
 
   const res = await fetch("/api/snapshot", {
     method: "POST",
@@ -1039,7 +1075,7 @@ async function saveSnapshotImage(name, folder) {
     },
     body: JSON.stringify({
       imageData: shot.imageData,
-      name,
+      name: replaceImageExtension(name, format),
       folder
     })
   });
@@ -1059,11 +1095,12 @@ async function takeSnapshot() {
   try {
     const w = video.videoWidth;
     const h = video.videoHeight;
-    const name = makeSnapshotName(w, h);
+    const format = normalizeImageFormat(settings.camera.snapshotFormat);
+    const name = makeSnapshotName(w, h, format);
 
     setStatus("saving snapshot...");
 
-    const file = await saveSnapshotImage(name, settings.camera.snapshotFolder);
+    const file = await saveSnapshotImage(name, settings.camera.snapshotFolder, format);
     setStatus(`saved ${file}`);
   } catch (err) {
     console.error(err);
@@ -1152,11 +1189,12 @@ async function startRasterCapture(event) {
         captureSettings.project,
         tile.tileX,
         tile.tileY,
-        i
+        i,
+        captureSettings.imageFormat
       );
 
       setStatus(`tile ${stepText}: saving ${name}...`);
-      const file = await saveSnapshotImage(name, captureSettings.project);
+      const file = await saveSnapshotImage(name, captureSettings.project, captureSettings.imageFormat);
       setStatus(`tile ${stepText}: saved ${file}`);
     }
 
@@ -1409,7 +1447,7 @@ async function homeSafePrinter() {
 
     const safeZ = safePrinterZ();
 
-    setStatus(`Safe: set current Z as ${safeZ.toFixed(2)}, then home X/Y...`);
+    setStatus(`Safe: moving to X${Number(settings.printer.safeX || 0).toFixed(2)} Y${Number(settings.printer.safeY || 0).toFixed(2)} Z${safeZ.toFixed(2)}...`);
 
     const res = await fetch("/api/printer/home-safe", {
       method: "POST",
@@ -1515,6 +1553,16 @@ if (captureTilesX) captureTilesX.addEventListener("input", updateCaptureFarFromC
 if (captureTilesY) captureTilesY.addEventListener("input", updateCaptureFarFromCounts);
 if (captureTileStepX) captureTileStepX.addEventListener("input", updateCaptureFarFromCounts);
 if (captureTileStepY) captureTileStepY.addEventListener("input", updateCaptureFarFromCounts);
+if (captureImageFormat) {
+  captureImageFormat.addEventListener("change", () => {
+    if (captureFilenamePattern) {
+      captureFilenamePattern.value = replaceImageExtension(
+        captureFilenamePattern.value || "{project}_tile_x{X}_y{Y}.jpg",
+        captureImageFormat.value
+      );
+    }
+  });
+}
 
 connectPrinterBtn.addEventListener("click", togglePrinterConnection);
 homeAllBtn.addEventListener("click", homeAllPrinter);

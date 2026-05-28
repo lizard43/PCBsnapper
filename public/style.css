@@ -499,8 +499,8 @@ label select {
 }
 
 .capture-checkbox-row {
-  align-self: end;
-  min-height: 58px;
+  align-self: center;
+  min-height: 0;
 }
 
 .capture-note {

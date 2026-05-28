@@ -625,6 +625,7 @@ app.post("/api/printer/home-all", async (req, res) => {
 
     await sendLine("G90", lineEnding);
     await sendLine("G28", lineEnding, 120000);
+    await waitForMoves(lineEnding);
 
     if (dryRun) {
       xyz = { x: 0, y: 0, z: 0 };
