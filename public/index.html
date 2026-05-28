@@ -11,16 +11,17 @@
 <body>
   <header class="toolbar">
     <div class="toolbar-main">
-      <button id="homeAllBtn" disabled title="Real G28 home for X/Y/Z">G28</button>
-      <button id="homeSafeBtn" disabled title="Set current Z as safe height, then home X/Y only">Safe</button>
+      <button id="connectPrinterBtn">Connect</button>
+      <button id="homeSafeBtn" disabled title="Move to safe Z and safe X/Y without running G28 Z">Home</button>
+      <button id="startCaptureBtn" type="button" disabled>Start Capture</button>
 
       <div class="jog-controls">
-        <button class="jog-btn" data-axis="X" data-dir="1" disabled>X+</button>
         <button class="jog-btn" data-axis="X" data-dir="-1" disabled>X-</button>
-        <button class="jog-btn" data-axis="Y" data-dir="1" disabled>Y+</button>
+        <button class="jog-btn" data-axis="X" data-dir="1" disabled>X+</button>
         <button class="jog-btn" data-axis="Y" data-dir="-1" disabled>Y-</button>
-        <button class="jog-btn" data-axis="Z" data-dir="1" disabled>Z+</button>
+        <button class="jog-btn" data-axis="Y" data-dir="1" disabled>Y+</button>
         <button class="jog-btn" data-axis="Z" data-dir="-1" disabled>Z-</button>
+        <button class="jog-btn" data-axis="Z" data-dir="1" disabled>Z+</button>
 
         <select id="jogStepSelect" disabled>
           <option value="0.1">0.1mm</option>
@@ -33,17 +34,21 @@
         </select>
       </div>
 
-      <button id="connectPrinterBtn">Connect</button>
-      <button id="snapBtn" disabled>Snapshot</button>
-      <button id="startCaptureBtn" type="button">Start Capture</button>
-      <button id="gridBtn" class="grid-btn" type="button" aria-pressed="false" title="Show UI grid overlay">Grid</button>
+      <button id="gridBtn" class="grid-btn" type="button" aria-pressed="false"
+        title="Show UI grid overlay">Grid</button>
+      <button id="snapBtn" class="hidden-toolbar-control" disabled>Snapshot</button>
+      <button id="homeAllBtn" class="hidden-toolbar-control" disabled title="Real G28 home for X/Y/Z">G28</button>
 
       <button id="settingsBtn" class="settings-btn" title="Settings" aria-label="Settings">⚙</button>
     </div>
 
     <div class="toolbar-status">
       <span id="printerStatus">printer: disconnected</span>
+      <span class="status-separator">|</span>
+
       <span id="xyzStatus">X0.00 Y0.00 Z0.00</span>
+      <span class="status-separator">|</span>
+
       <span id="status">starting...</span>
     </div>
   </header>
@@ -276,7 +281,8 @@
         </div>
 
         <p class="capture-note">
-          Start position is the current printer X/Y. The displayed count previews from Safe X/Y until the scan starts, then it recalculates from the actual printer X/Y. Tile numbers and image numbers are zero-based.
+          Start position is the current printer X/Y. The displayed count previews from Safe X/Y until the scan starts,
+          then it recalculates from the actual printer X/Y. Tile numbers and image numbers are zero-based.
         </p>
 
         <footer class="modal-actions">

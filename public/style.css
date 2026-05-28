@@ -44,6 +44,11 @@ body {
   overflow: hidden;
 }
 
+.status-separator {
+  color: #666;
+  user-select: none;
+}
+
 .jog-controls {
   display: flex;
   gap: 4px;
@@ -76,9 +81,9 @@ button:active:not(:disabled) {
 
 button:disabled,
 select:disabled {
-  background: #303030;
-  color: #777;
-  border-color: #4a4a4a;
+  background: #2a2a2a;
+  color: #666;
+  border-color: #3f3f3f;
   opacity: 1;
   cursor: not-allowed;
 }
@@ -123,8 +128,8 @@ select {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #242424;
-  border: 1px solid #4a4a4a;
+  background: transparent;
+  border: 0;
   border-radius: 6px;
   color: #9fc6d9;
   font-size: 24px;
@@ -133,7 +138,6 @@ select {
 
 .settings-btn:hover:not(:disabled) {
   background: #303030;
-  border-color: #666;
   color: #b9e0f4;
 }
 
@@ -141,10 +145,14 @@ select {
   background: #3a3a3a;
 }
 
+.hidden-toolbar-control {
+  display: none !important;
+}
+
 .grid-btn.active {
-  background: #45535a;
-  border-color: #7fa6b8;
-  color: #fff;
+  background: #303030;
+  border-color: #555;
+  color: #ddd;
 }
 
 /* =========================
@@ -496,13 +504,13 @@ label select {
   line-height: 1.35;
 }
 
-#startCaptureBtn {
-  border-color: #6c8a4d;
-  color: #dceec9;
+#startCaptureBtn:not(:disabled) {
+  border-color: #555;
+  color: #ddd;
 }
 
 #startCaptureBtn:hover:not(:disabled) {
-  background: #35422c;
+  background: #3a3a3a;
   color: #fff;
 }
 

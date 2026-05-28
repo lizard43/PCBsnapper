@@ -898,7 +898,7 @@ async function startCamera() {
     );
 
     updateGridOverlayRect();
-    snapBtn.disabled = false;
+    snapBtn.disabled = !printerConnected;
   } catch (err) {
     console.error("[CAMERA ERROR]", err);
     snapBtn.disabled = true;
@@ -1003,7 +1003,10 @@ async function startRasterCapture(event) {
     closeCaptureDialog();
 
     rasterRunning = true;
-    if (startCaptureBtn) startCaptureBtn.disabled = true;
+    if (startCaptureBtn) {
+      startCaptureBtn.textContent = "Stop Capture";
+      startCaptureBtn.disabled = true;
+    }
     if (snapBtn) snapBtn.disabled = true;
 
     const statusRes = await fetch(`/api/printer/status?${new URLSearchParams({
@@ -1063,19 +1066,31 @@ async function startRasterCapture(event) {
     await refreshPrinterStatus();
   } finally {
     rasterRunning = false;
-    if (startCaptureBtn) startCaptureBtn.disabled = false;
-    if (snapBtn) snapBtn.disabled = !stream;
+    if (startCaptureBtn) {
+      startCaptureBtn.textContent = "Start Capture";
+    }
+    setToolbarControlsEnabled(printerConnected);
   }
 }
 
-function setMotionButtonsEnabled(enabled) {
+function setToolbarControlsEnabled(enabled) {
   if (homeAllBtn) homeAllBtn.disabled = !enabled;
   if (homeSafeBtn) homeSafeBtn.disabled = !enabled;
   if (jogStepSelect) jogStepSelect.disabled = !enabled;
+  if (startCaptureBtn) startCaptureBtn.disabled = !enabled || rasterRunning;
+  if (gridBtn) gridBtn.disabled = !enabled;
 
   document.querySelectorAll(".jog-btn").forEach(btn => {
     btn.disabled = !enabled;
   });
+
+  if (snapBtn) {
+    snapBtn.disabled = !enabled || !stream;
+  }
+}
+
+function setMotionButtonsEnabled(enabled) {
+  setToolbarControlsEnabled(enabled);
 }
 
 function updateXYZDisplay(pos) {
