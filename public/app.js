@@ -45,6 +45,7 @@ let printerConnected = false;
 let printerOpening = false;
 let cameraStatusText = "cam: disconnected";
 let rasterRunning = false;
+let rasterCancelRequested = false;
 
 const STORAGE_KEY_SETTINGS = "pcbsnapper.settings";
 const STORAGE_KEY_LOG_HEIGHT = "pcbsnapper.comLogHeight";
@@ -108,6 +109,39 @@ function updateToolbarStatus() {
     printerStatus.dataset.baseText || "printer: disconnected";
 
   printerStatus.textContent = printerText;
+}
+
+function updateCaptureButtonState() {
+  if (!startCaptureBtn) return;
+
+  if (rasterRunning) {
+    startCaptureBtn.textContent = rasterCancelRequested ? "Stopping..." : "Stop Capture";
+    startCaptureBtn.disabled = rasterCancelRequested;
+    startCaptureBtn.classList.add("capture-running");
+    startCaptureBtn.title = rasterCancelRequested
+      ? "Stopping capture after the current command returns"
+      : "Stop raster capture";
+    return;
+  }
+
+  startCaptureBtn.textContent = "Start Capture";
+  startCaptureBtn.disabled = !printerConnected;
+  startCaptureBtn.classList.remove("capture-running");
+  startCaptureBtn.title = "Start raster capture";
+}
+
+function requestStopRasterCapture() {
+  if (!rasterRunning || rasterCancelRequested) return;
+
+  rasterCancelRequested = true;
+  updateCaptureButtonState();
+  setStatus("raster stop requested: no more move commands will be sent");
+}
+
+function throwIfRasterStopped() {
+  if (rasterCancelRequested) {
+    throw new Error("Raster capture stopped");
+  }
 }
 
 function clone(obj) {
@@ -518,6 +552,17 @@ async function movePrinterAbsoluteXY(x, y) {
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function cancellableDelay(ms) {
+  const end = Date.now() + Math.max(0, Number(ms) || 0);
+
+  while (Date.now() < end) {
+    throwIfRasterStopped();
+    await delay(Math.min(100, end - Date.now()));
+  }
+
+  throwIfRasterStopped();
 }
 
 function setGridVisible(visible, persist = true) {
@@ -1031,10 +1076,8 @@ async function startRasterCapture(event) {
     closeCaptureDialog();
 
     rasterRunning = true;
-    if (startCaptureBtn) {
-      startCaptureBtn.textContent = "Stop Capture";
-      startCaptureBtn.disabled = true;
-    }
+    rasterCancelRequested = false;
+    updateCaptureButtonState();
     if (snapBtn) snapBtn.disabled = true;
 
     const statusRes = await fetch(`/api/printer/status?${new URLSearchParams({
@@ -1057,6 +1100,8 @@ async function startRasterCapture(event) {
     );
 
     for (let i = 0; i < plan.length; i++) {
+      throwIfRasterStopped();
+
       const tile = plan[i];
       const stepText = `${i + 1}/${total}`;
 
@@ -1065,13 +1110,17 @@ async function startRasterCapture(event) {
         `Y${tile.y.toFixed(2)}`
       );
 
+      throwIfRasterStopped();
       await movePrinterAbsoluteXY(tile.x, tile.y);
+      throwIfRasterStopped();
 
       const settle = Math.max(0, intValue(settings.printer.settleDelayMs, 0));
       if (settle > 0) {
         setStatus(`tile ${stepText}: settling ${settle}ms...`);
-        await delay(settle);
+        await cancellableDelay(settle);
       }
+
+      throwIfRasterStopped();
 
       const name = makeRasterFilename(
         captureSettings.filenamePattern,
@@ -1090,14 +1139,19 @@ async function startRasterCapture(event) {
     await refreshPrinterStatus();
   } catch (err) {
     console.error(err);
-    setStatus("raster failed: " + err.message);
+
+    if (rasterCancelRequested || err.message === "Raster capture stopped") {
+      setStatus("raster stopped by user");
+    } else {
+      setStatus("raster failed: " + err.message);
+    }
+
     await refreshPrinterStatus();
   } finally {
     rasterRunning = false;
-    if (startCaptureBtn) {
-      startCaptureBtn.textContent = "Start Capture";
-    }
+    rasterCancelRequested = false;
     setToolbarControlsEnabled(printerConnected);
+    updateCaptureButtonState();
   }
 }
 
@@ -1107,7 +1161,10 @@ function setToolbarControlsEnabled(enabled) {
   if (jogStepSelect) jogStepSelect.disabled = !enabled;
 
   if (startCaptureBtn) {
-    startCaptureBtn.disabled = !enabled || rasterRunning;
+    startCaptureBtn.disabled = rasterRunning
+      ? rasterCancelRequested
+      : !enabled;
+    updateCaptureButtonState();
   }
 
   // Grid is a UI overlay only. It must remain available even when printer/camera are offline.
@@ -1412,7 +1469,12 @@ async function jog(axis, direction) {
 snapBtn.addEventListener("click", takeSnapshot);
 if (startCaptureBtn) {
   startCaptureBtn.addEventListener("click", () => {
-    if (startCaptureBtn.disabled || !printerConnected || rasterRunning) {
+    if (rasterRunning) {
+      requestStopRasterCapture();
+      return;
+    }
+
+    if (startCaptureBtn.disabled || !printerConnected) {
       return;
     }
 
