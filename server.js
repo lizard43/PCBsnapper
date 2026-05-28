@@ -699,7 +699,22 @@ app.post("/api/printer/home-safe", async (req, res) => {
 
     await waitForMoves(lineEnding);
 
-    const pos = await queryPosition(lineEnding, 30000);
+    // The Safe move was accepted and completed. Update our server-side
+    // position cache to the commanded safe target immediately so the UI
+    // status bar reflects the Safe destination even if the following M114
+    // read is delayed, noisy, or fails.
+    xyz = {
+      x: Number(safeX || 0),
+      y: Number(safeY || 0),
+      z
+    };
+
+    const pos = await queryPosition(lineEnding, 30000)
+      .catch(err => {
+        addLog(`[WARN] Safe M114 failed after completed move: ${err.message}`);
+        return xyz;
+      });
+
     needsHome = false;
 
     res.json(makePrinterState({ xyz: pos }));
