@@ -48,6 +48,7 @@ let printerOpening = false;
 let cameraStatusText = "cam: disconnected";
 let rasterRunning = false;
 let rasterCancelRequested = false;
+let currentPrinterXyz = null;
 
 const STORAGE_KEY_SETTINGS = "pcbsnapper.settings";
 const STORAGE_KEY_LOG_HEIGHT = "pcbsnapper.comLogHeight";
@@ -346,30 +347,52 @@ function setCaptureCountPreview(text) {
 }
 
 function captureOriginX() {
-  return numberValue(settings?.printer?.safeX, 0);
+  return numberValue(currentPrinterXyz?.x, 0);
 }
 
 function captureOriginY() {
-  return numberValue(settings?.printer?.safeY, 0);
+  return numberValue(currentPrinterXyz?.y, 0);
+}
+
+function wholeNumberText(value) {
+  return String(Math.round(numberValue(value, 0)));
+}
+
+function axisPositionFromOrigin(originValue, farValue, index, stepValue) {
+  const origin = numberValue(originValue, 0);
+  const far = numberValue(farValue, origin);
+  const step = Math.max(0.001, Math.abs(numberValue(stepValue, 0.001)));
+  const delta = far - origin;
+  const direction = delta < 0 ? -1 : 1;
+  const distance = Math.abs(delta);
+  const steppedDistance = Math.min(distance, index * step);
+
+  return origin + (direction * steppedDistance);
+}
+
+function tileCountForDistance(originValue, farValue, stepValue) {
+  const origin = numberValue(originValue, 0);
+  const far = numberValue(farValue, origin);
+  const step = Math.max(0.001, Math.abs(numberValue(stepValue, 0.001)));
+  const distance = Math.abs(far - origin);
+
+  return Math.max(1, Math.ceil(distance / step) + 1);
 }
 
 function updateCapturePreview() {
   const originX = captureOriginX();
   const originY = captureOriginY();
 
-  const stepX = Math.max(0.001, numberValue(captureTileStepX?.value, settings.raster.tileStepX));
-  const stepY = Math.max(0.001, numberValue(captureTileStepY?.value, settings.raster.tileStepY));
-
   const tilesX = Math.max(1, intValue(captureTilesX?.value, settings.raster.tilesX));
   const tilesY = Math.max(1, intValue(captureTilesY?.value, settings.raster.tilesY));
 
-  const farX = originX + ((tilesX - 1) * stepX);
-  const farY = originY + ((tilesY - 1) * stepY);
+  const farX = numberValue(captureFarX?.value, originX);
+  const farY = numberValue(captureFarY?.value, originY);
   const total = tilesX * tilesY;
 
   setCaptureCountPreview(
-    `Origin X${originX.toFixed(2)} Y${originY.toFixed(2)} → ` +
-    `far X${farX.toFixed(2)} Y${farY.toFixed(2)} · ` +
+    `Origin X${wholeNumberText(originX)} Y${wholeNumberText(originY)} → ` +
+    `far X${wholeNumberText(farX)} Y${wholeNumberText(farY)} · ` +
     `${tilesX} × ${tilesY} = ${total} tiles`
   );
 }
@@ -389,8 +412,8 @@ function updateCaptureFarFromCounts() {
   const tilesX = Math.max(1, intValue(captureTilesX?.value, settings.raster.tilesX));
   const tilesY = Math.max(1, intValue(captureTilesY?.value, settings.raster.tilesY));
 
-  captureFarX.value = (originX + ((tilesX - 1) * stepX)).toFixed(2);
-  captureFarY.value = (originY + ((tilesY - 1) * stepY)).toFixed(2);
+  captureFarX.value = (originX + ((tilesX - 1) * stepX)).toFixed(0);
+  captureFarY.value = (originY + ((tilesY - 1) * stepY)).toFixed(0);
 
   updateCapturePreview();
 }
@@ -410,8 +433,8 @@ function updateCaptureCountsFromFar() {
   const farX = numberValue(captureFarX.value, originX);
   const farY = numberValue(captureFarY.value, originY);
 
-  const tilesX = Math.max(1, Math.floor((farX - originX) / stepX) + 1);
-  const tilesY = Math.max(1, Math.floor((farY - originY) / stepY) + 1);
+  const tilesX = tileCountForDistance(originX, farX, stepX);
+  const tilesY = tileCountForDistance(originY, farY, stepY);
 
   if (captureTilesX) captureTilesX.value = tilesX;
   if (captureTilesY) captureTilesY.value = tilesY;
@@ -419,8 +442,10 @@ function updateCaptureCountsFromFar() {
   updateCapturePreview();
 }
 
-function openCaptureDialog() {
+async function openCaptureDialog() {
   if (!captureOverlay) return;
+
+  await refreshPrinterStatus();
 
   const missing = [];
   const requireEl = (el, name) => {
@@ -498,6 +523,8 @@ function readCaptureForm() {
     project,
     tileStepX: numberValue(captureTileStepX?.value, settings?.raster?.tileStepX ?? DEFAULT_SETTINGS.raster.tileStepX),
     tileStepY: numberValue(captureTileStepY?.value, settings?.raster?.tileStepY ?? DEFAULT_SETTINGS.raster.tileStepY),
+    farX: numberValue(captureFarX?.value, captureOriginX()),
+    farY: numberValue(captureFarY?.value, captureOriginY()),
     tilesX: Math.max(1, intValue(captureTilesX?.value, settings?.raster?.tilesX ?? DEFAULT_SETTINGS.raster.tilesX)),
     tilesY: Math.max(1, intValue(captureTilesY?.value, settings?.raster?.tilesY ?? DEFAULT_SETTINGS.raster.tilesY)),
     snakeRaster: !!(captureSnakeRaster?.checked ?? settings?.raster?.snakeRaster ?? DEFAULT_SETTINGS.raster.snakeRaster),
@@ -559,8 +586,8 @@ function buildRasterPlan(captureSettings, origin) {
       plan.push({
         tileX: col,
         tileY: row,
-        x: Number(origin.x || 0) + (col * captureSettings.tileStepX),
-        y: Number(origin.y || 0) + (row * captureSettings.tileStepY)
+        x: axisPositionFromOrigin(origin.x, captureSettings.farX, col, captureSettings.tileStepX),
+        y: axisPositionFromOrigin(origin.y, captureSettings.farY, row, captureSettings.tileStepY)
       });
     }
   }
@@ -1187,8 +1214,8 @@ async function startRasterCapture(event) {
 
     setStatus(
       `raster start: ${captureSettings.tilesX}x${captureSettings.tilesY}, ` +
-      `${total} tiles, origin X${Number(origin.x || 0).toFixed(2)} ` +
-      `Y${Number(origin.y || 0).toFixed(2)}`
+      `${total} tiles, origin X${Number(origin.x || 0).toFixed(0)} ` +
+      `Y${Number(origin.y || 0).toFixed(0)}`
     );
 
     const pauseMs = Math.max(0, Number(captureSettings.capturePauseSeconds || 0) * 1000);
@@ -1202,12 +1229,12 @@ async function startRasterCapture(event) {
       if (i === 0) {
         setStatus(
           `tile ${stepText}: capturing start position ` +
-          `X${tile.x.toFixed(2)} Y${tile.y.toFixed(2)}`
+          `X${tile.x.toFixed(0)} Y${tile.y.toFixed(0)}`
         );
       } else {
         setStatus(
-          `tile ${stepText}: move to X${tile.x.toFixed(2)} ` +
-          `Y${tile.y.toFixed(2)}`
+          `tile ${stepText}: move to X${tile.x.toFixed(0)} ` +
+          `Y${tile.y.toFixed(0)}`
         );
 
         throwIfRasterStopped();
@@ -1333,6 +1360,7 @@ function setPrinterUi(state) {
     setMotionButtonsEnabled(false);
   }
 
+  currentPrinterXyz = state.xyz || currentPrinterXyz;
   updateXYZDisplay(state.xyz);
 }
 
@@ -1584,7 +1612,10 @@ if (startCaptureBtn) {
       return;
     }
 
-    openCaptureDialog();
+    openCaptureDialog().catch(err => {
+      console.error(err);
+      setStatus("capture dialog failed: " + err.message);
+    });
   });
 }
 if (captureCloseBtn) captureCloseBtn.addEventListener("click", closeCaptureDialog);
