@@ -7,6 +7,7 @@ const gridBtn = document.getElementById("gridBtn");
 const startCaptureBtn = document.getElementById("startCaptureBtn");
 const captureOverlay = document.getElementById("captureOverlay");
 const captureCloseBtn = document.getElementById("captureCloseBtn");
+const captureReloadBtn = document.getElementById("captureReloadBtn");
 const captureCancelBtn = document.getElementById("captureCancelBtn");
 const captureForm = document.getElementById("captureForm");
 const captureProjectName = document.getElementById("captureProjectName");
@@ -55,6 +56,7 @@ let currentPrinterXyz = null;
 const STORAGE_KEY_SETTINGS = "pcbsnapper.settings";
 const STORAGE_KEY_LOG_HEIGHT = "pcbsnapper.comLogHeight";
 const STORAGE_KEY_GRID_VISIBLE = "pcbsnapper.gridVisible";
+const STORAGE_KEY_CAPTURE_STATE = "pcbsnapper.captureState";
 const DEFAULT_LOG_LINES = 4;
 const LOG_POLL_MS = 500;
 
@@ -420,6 +422,103 @@ function updateCapturePreview() {
     `far X${wholeNumberText(farX)} Y${wholeNumberText(farY)} · ` +
     `${tilesX} × ${tilesY} = ${total} tiles`
   );
+}
+
+function captureFormStateFromFields() {
+  return {
+    projectName: captureProjectName?.value ?? "pcb_project",
+    tileStepX: captureTileStepX?.value ?? String(DEFAULT_SETTINGS.raster.tileStepX),
+    tileStepY: captureTileStepY?.value ?? String(DEFAULT_SETTINGS.raster.tileStepY),
+    farX: captureFarX?.value ?? String(captureOriginX()),
+    farY: captureFarY?.value ?? String(captureOriginY()),
+    tilesX: captureTilesX?.value ?? String(DEFAULT_SETTINGS.raster.tilesX),
+    tilesY: captureTilesY?.value ?? String(DEFAULT_SETTINGS.raster.tilesY),
+    snakeRaster: !!captureSnakeRaster?.checked,
+    capturePauseSeconds: capturePauseSeconds?.value ?? String(DEFAULT_SETTINGS.raster.capturePauseSeconds),
+    filenamePattern: captureFilenamePattern?.value ?? DEFAULT_SETTINGS.raster.filenamePattern,
+    imageFormat: normalizeImageFormat(captureImageFormat?.value ?? settings?.camera?.snapshotFormat)
+  };
+}
+
+function saveCaptureFormState() {
+  try {
+    localStorage.setItem(
+      STORAGE_KEY_CAPTURE_STATE,
+      JSON.stringify(captureFormStateFromFields())
+    );
+  } catch (err) {
+    console.warn("[CAPTURE] Could not save capture dialog state", err);
+  }
+}
+
+function loadSavedCaptureFormState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_CAPTURE_STATE);
+    return raw ? JSON.parse(raw) : null;
+  } catch (err) {
+    console.warn("[CAPTURE] Could not load capture dialog state", err);
+    return null;
+  }
+}
+
+function applyCaptureFormState(state) {
+  if (!state || typeof state !== "object") return false;
+
+  if (captureProjectName && state.projectName != null) {
+    captureProjectName.value = String(state.projectName);
+  }
+  if (captureTileStepX && state.tileStepX != null) {
+    captureTileStepX.value = String(state.tileStepX);
+  }
+  if (captureTileStepY && state.tileStepY != null) {
+    captureTileStepY.value = String(state.tileStepY);
+  }
+  if (captureFarX && state.farX != null) {
+    captureFarX.value = String(state.farX);
+  }
+  if (captureFarY && state.farY != null) {
+    captureFarY.value = String(state.farY);
+  }
+  if (captureTilesX && state.tilesX != null) {
+    captureTilesX.value = Math.max(1, intValue(state.tilesX, DEFAULT_SETTINGS.raster.tilesX));
+  }
+  if (captureTilesY && state.tilesY != null) {
+    captureTilesY.value = Math.max(1, intValue(state.tilesY, DEFAULT_SETTINGS.raster.tilesY));
+  }
+  if (captureSnakeRaster && state.snakeRaster != null) {
+    captureSnakeRaster.checked = !!state.snakeRaster;
+  }
+  if (capturePauseSeconds && state.capturePauseSeconds != null) {
+    capturePauseSeconds.value = clampNumber(
+      state.capturePauseSeconds,
+      0,
+      3600,
+      DEFAULT_SETTINGS.raster.capturePauseSeconds
+    );
+  }
+  if (captureImageFormat && state.imageFormat != null) {
+    captureImageFormat.value = normalizeImageFormat(state.imageFormat);
+  }
+  if (captureFilenamePattern && state.filenamePattern != null) {
+    captureFilenamePattern.value = replaceImageExtension(
+      normalizeRasterFilenamePattern(state.filenamePattern),
+      captureImageFormat?.value ?? state.imageFormat
+    );
+  }
+
+  updateCapturePreview();
+  return true;
+}
+
+function reloadSavedCaptureFormState() {
+  const saved = loadSavedCaptureFormState();
+
+  if (!applyCaptureFormState(saved)) {
+    setStatus("capture reload: no saved capture dialog state yet");
+    return;
+  }
+
+  setStatus("capture reload: restored last Start Scanning dialog values");
 }
 
 function updateCaptureFarFromCounts() {
@@ -1266,6 +1365,7 @@ async function startRasterCapture(event) {
     }
 
     const captureSettings = readCaptureForm();
+    saveCaptureFormState();
     closeCaptureDialog();
 
     rasterRunning = true;
@@ -1710,6 +1810,7 @@ if (startCaptureBtn) {
   });
 }
 if (captureCloseBtn) captureCloseBtn.addEventListener("click", closeCaptureDialog);
+if (captureReloadBtn) captureReloadBtn.addEventListener("click", reloadSavedCaptureFormState);
 if (captureCancelBtn) captureCancelBtn.addEventListener("click", closeCaptureDialog);
 if (captureForm) captureForm.addEventListener("submit", startRasterCapture);
 if (captureFarX) captureFarX.addEventListener("input", updateCaptureCountsFromFar);

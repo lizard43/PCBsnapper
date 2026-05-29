@@ -475,6 +475,38 @@ label select {
   flex: 1;
 }
 
+
+.capture-reload-btn {
+  margin-left: auto;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  color: #b8d3df;
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.capture-reload-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #eefaff;
+}
+
+.capture-reload-btn:active:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  transform: rotate(-25deg);
+}
+
+.capture-modal .icon-btn {
+  margin-left: 2px;
+}
+
 /* =========================
    Mobile
    ========================= */
