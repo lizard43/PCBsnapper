@@ -5,7 +5,6 @@ const canvas = document.getElementById("canvas");
 const viewerWrap = document.getElementById("viewerWrap");
 const gridBtn = document.getElementById("gridBtn");
 const startCaptureBtn = document.getElementById("startCaptureBtn");
-const pauseCaptureBtn = document.getElementById("pauseCaptureBtn");
 const captureOverlay = document.getElementById("captureOverlay");
 const captureCloseBtn = document.getElementById("captureCloseBtn");
 const captureCancelBtn = document.getElementById("captureCancelBtn");
@@ -50,7 +49,7 @@ let printerDryRun = false;
 let cameraStatusText = "cam: disconnected";
 let rasterRunning = false;
 let rasterCancelRequested = false;
-let rasterPaused = false;
+let homeAllLocked = false;
 let currentPrinterXyz = null;
 
 const STORAGE_KEY_SETTINGS = "pcbsnapper.settings";
@@ -119,73 +118,60 @@ function updateToolbarStatus() {
   printerStatus.textContent = printerText;
 }
 
-function updatePauseButtonState() {
-  if (!pauseCaptureBtn) return;
+function updateHomeAllButtonState(enabled = printerConnected && !printerOpening) {
+  if (!homeAllBtn) return;
 
-  pauseCaptureBtn.disabled = !rasterRunning || rasterCancelRequested;
-  pauseCaptureBtn.textContent = rasterPaused ? "Continue" : "Pause";
-  pauseCaptureBtn.classList.toggle("capture-paused", rasterPaused);
-  pauseCaptureBtn.title = rasterPaused
-    ? "Continue raster capture"
-    : "Pause raster capture before the next step move";
+  const canUseHome = !!enabled;
+
+  homeAllBtn.disabled = !canUseHome;
+  homeAllBtn.classList.toggle("home-locked", canUseHome && homeAllLocked);
+  homeAllBtn.title = homeAllLocked
+    ? "Locked after Safe. Shift+Click to send G28 XYZ."
+    : "Send real G28 home for X/Y/Z";
+  homeAllBtn.setAttribute(
+    "aria-label",
+    homeAllLocked
+      ? "Home locked after Safe. Shift click to send G28 XYZ."
+      : "Home"
+  );
+}
+
+function setHomeAllLocked(locked) {
+  homeAllLocked = !!locked;
+  updateHomeAllButtonState();
 }
 
 function updateCaptureButtonState() {
-  if (startCaptureBtn) {
-    if (rasterRunning) {
-      startCaptureBtn.textContent = rasterCancelRequested ? "Stopping..." : "Stop Capture";
-      startCaptureBtn.disabled = rasterCancelRequested;
-      startCaptureBtn.classList.add("capture-running");
-      startCaptureBtn.title = rasterCancelRequested
-        ? "Stopping capture after the current command returns"
-        : "Stop raster capture";
-    } else {
-      startCaptureBtn.textContent = "Start Capture";
-      startCaptureBtn.disabled = !printerConnected;
-      startCaptureBtn.classList.remove("capture-running");
-      startCaptureBtn.title = "Start raster capture";
-    }
+  if (!startCaptureBtn) return;
+
+  if (rasterRunning) {
+    startCaptureBtn.textContent = rasterCancelRequested ? "Stopping..." : "Stop Capture";
+    startCaptureBtn.disabled = rasterCancelRequested;
+    startCaptureBtn.classList.add("capture-running");
+    startCaptureBtn.title = rasterCancelRequested
+      ? "Stopping capture after the current command returns"
+      : "Stop raster capture";
+    return;
   }
 
-  updatePauseButtonState();
+  startCaptureBtn.textContent = "Start Capture";
+  startCaptureBtn.disabled = !printerConnected;
+  startCaptureBtn.classList.remove("capture-running");
+  startCaptureBtn.title = "Start raster capture";
 }
 
 function requestStopRasterCapture() {
   if (!rasterRunning || rasterCancelRequested) return;
 
   rasterCancelRequested = true;
-  rasterPaused = false;
   updateCaptureButtonState();
   setStatus("raster stop requested: no more move commands will be sent");
-}
-
-function toggleRasterPause() {
-  if (!rasterRunning || rasterCancelRequested) return;
-
-  rasterPaused = !rasterPaused;
-  updateCaptureButtonState();
-  setStatus(rasterPaused ? "raster paused" : "raster continuing");
 }
 
 function throwIfRasterStopped() {
   if (rasterCancelRequested) {
     throw new Error("Raster capture stopped");
   }
-}
-
-async function waitIfRasterPaused(context = "raster") {
-  let announced = false;
-
-  while (rasterPaused && !rasterCancelRequested) {
-    if (!announced) {
-      setStatus(`${context}: paused; press Continue to resume`);
-      announced = true;
-    }
-
-    await delay(100);
-  }
-
-  throwIfRasterStopped();
 }
 
 function clone(obj) {
@@ -669,7 +655,6 @@ async function cancellableDelay(ms) {
 
   while (Date.now() < end) {
     throwIfRasterStopped();
-    await waitIfRasterPaused("raster delay");
     await delay(Math.min(100, end - Date.now()));
   }
 
@@ -1285,7 +1270,6 @@ async function startRasterCapture(event) {
 
     rasterRunning = true;
     rasterCancelRequested = false;
-    rasterPaused = false;
     updateCaptureButtonState();
     if (snapBtn) snapBtn.disabled = true;
 
@@ -1312,7 +1296,6 @@ async function startRasterCapture(event) {
 
     for (let i = 0; i < plan.length; i++) {
       throwIfRasterStopped();
-      await waitIfRasterPaused("raster step");
 
       const tile = plan[i];
       const stepText = `${i + 1}/${total}`;
@@ -1329,7 +1312,6 @@ async function startRasterCapture(event) {
         );
 
         throwIfRasterStopped();
-        await waitIfRasterPaused(`tile ${stepText} before move`);
         await movePrinterAbsoluteXY(tile.x, tile.y);
         throwIfRasterStopped();
 
@@ -1342,7 +1324,6 @@ async function startRasterCapture(event) {
       }
 
       throwIfRasterStopped();
-      await waitIfRasterPaused(`tile ${stepText} before image`);
 
       const name = makeRasterFilename(
         captureSettings.filenamePattern,
@@ -1373,14 +1354,13 @@ async function startRasterCapture(event) {
   } finally {
     rasterRunning = false;
     rasterCancelRequested = false;
-    rasterPaused = false;
     setToolbarControlsEnabled(printerConnected);
     updateCaptureButtonState();
   }
 }
 
 function setToolbarControlsEnabled(enabled) {
-  if (homeAllBtn) homeAllBtn.disabled = !enabled;
+  updateHomeAllButtonState(enabled);
   if (homeSafeBtn) homeSafeBtn.disabled = !enabled;
   if (jogStepSelect) jogStepSelect.disabled = !enabled;
 
@@ -1388,9 +1368,8 @@ function setToolbarControlsEnabled(enabled) {
     startCaptureBtn.disabled = rasterRunning
       ? rasterCancelRequested
       : !enabled;
+    updateCaptureButtonState();
   }
-
-  updateCaptureButtonState();
 
   // Grid is a UI overlay only. It must remain available even when printer/camera are offline.
   if (gridBtn) {
@@ -1516,11 +1495,13 @@ async function connectPrinter() {
       throw new Error(json.error || "Connect failed");
     }
 
+    setHomeAllLocked(false);
     setPrinterUi(json);
     setStatus(json.warning || "printer connected");
     await pollComLog();
   } catch (err) {
     console.error(err);
+    setHomeAllLocked(false);
     setPrinterUi({
       connected: false,
       opening: false,
@@ -1547,6 +1528,7 @@ async function disconnectPrinter() {
 
     const json = await res.json();
 
+    setHomeAllLocked(false);
     setPrinterUi(json);
     setStatus("printer disconnected");
   } catch (err) {
@@ -1566,7 +1548,7 @@ async function togglePrinterConnection() {
   }
 }
 
-async function homeAllPrinter() {
+async function homeAllPrinter(event = null) {
   try {
     await refreshPrinterStatus();
 
@@ -1574,7 +1556,17 @@ async function homeAllPrinter() {
       throw new Error("Printer is not connected");
     }
 
-    setStatus("sending full G28 XYZ home...");
+    if (homeAllLocked && !event?.shiftKey) {
+      setStatus("Home locked after Safe. Hold Shift and click Home to send G28.");
+      updateHomeAllButtonState();
+      return;
+    }
+
+    setStatus(
+      homeAllLocked
+        ? "Shift+Click accepted: sending full G28 XYZ home..."
+        : "sending full G28 XYZ home..."
+    );
 
     const res = await fetch("/api/printer/home-all", {
       method: "POST",
@@ -1591,6 +1583,7 @@ async function homeAllPrinter() {
     if (!json.ok) throw new Error(json.error);
 
     setPrinterUi(json);
+    setHomeAllLocked(false);
 
     const p = json.xyz || {};
     setStatus(
@@ -1637,6 +1630,7 @@ async function homeSafePrinter() {
     if (!json.ok) throw new Error(json.error);
 
     setPrinterUi(json);
+    setHomeAllLocked(true);
 
     const p = json.xyz || {};
     setStatus(
@@ -1715,10 +1709,6 @@ if (startCaptureBtn) {
     });
   });
 }
-
-if (pauseCaptureBtn) {
-  pauseCaptureBtn.addEventListener("click", toggleRasterPause);
-}
 if (captureCloseBtn) captureCloseBtn.addEventListener("click", closeCaptureDialog);
 if (captureCancelBtn) captureCancelBtn.addEventListener("click", closeCaptureDialog);
 if (captureForm) captureForm.addEventListener("submit", startRasterCapture);
@@ -1740,7 +1730,7 @@ if (captureImageFormat) {
 }
 
 connectPrinterBtn.addEventListener("click", togglePrinterConnection);
-homeAllBtn.addEventListener("click", homeAllPrinter);
+homeAllBtn.addEventListener("click", event => homeAllPrinter(event));
 homeSafeBtn.addEventListener("click", homeSafePrinter);
 
 document.querySelectorAll(".jog-btn").forEach(btn => {
