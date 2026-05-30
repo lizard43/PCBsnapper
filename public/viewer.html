@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>PCB Tile Mosaic Viewer</title>
+  <style>
+    :root {
+      --bg: #10141a;
+      --panel: #1a2029;
+      --panel2: #222b38;
+      --text: #e8edf2;
+      --muted: #9aa6b2;
+      --accent: #7fb4ff;
+      --border: #343c49;
+      --danger: #ff8a8a;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      height: 100vh;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .toolbar {
+      height: 82px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      box-shadow: 0 2px 12px rgba(0,0,0,.25);
+      position: relative;
+      z-index: 5;
+    }
+
+    button {
+      background: var(--panel2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 9px 13px;
+      cursor: pointer;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+
+    button:hover {
+      border-color: var(--accent);
+      background: #273244;
+    }
+
+    .control {
+      min-width: 190px;
+      display: grid;
+      gap: 4px;
+    }
+
+    .control label {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1;
+    }
+
+    .checkControl {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+      user-select: none;
+    }
+
+    .checkControl input {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+
+    .status {
+      margin-left: auto;
+      min-width: 460px;
+      color: var(--muted);
+      font-size: 13px;
+      text-align: right;
+      line-height: 1.35;
+    }
+
+    .main {
+      height: calc(100vh - 82px);
+      overflow: auto;
+      position: relative;
+      background:
+        linear-gradient(45deg, #141922 25%, transparent 25%),
+        linear-gradient(-45deg, #141922 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #141922 75%),
+        linear-gradient(-45deg, transparent 75%, #141922 75%);
+      background-size: 28px 28px;
+      background-position: 0 0, 0 14px, 14px -14px, -14px 0px;
+    }
+
+    #mosaic {
+      position: relative;
+      margin: 20px;
+      transform-origin: top left;
+    }
+
+    .tileWrap {
+      position: absolute;
+      background: #000;
+    }
+
+    .tileWrap:hover {
+      outline: 2px solid rgba(127,180,255,.90);
+      z-index: 999999 !important;
+    }
+
+    .tile {
+      display: block;
+      width: 100%;
+      height: 100%;
+      image-rendering: auto;
+      user-select: none;
+      -webkit-user-drag: none;
+      outline: 1px solid rgba(127,180,255,.16);
+    }
+
+    .tileLabel {
+      position: absolute;
+      left: 4px;
+      bottom: 4px;
+      padding: 2px 5px;
+      border-radius: 4px;
+      background: rgba(0, 0, 0, .68);
+      color: #fff;
+      font-size: 12px;
+      line-height: 1.1;
+      font-weight: 700;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      text-shadow: 0 1px 1px #000;
+      pointer-events: none;
+      display: none;
+    }
+
+    body.showLabels .tileLabel {
+      display: block;
+    }
+
+    .empty {
+      padding: 30px;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .error { color: var(--danger); }
+    .small { font-size: 12px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button id="openFolderBtn">Open folder</button>
+    <button id="openFilesBtn">Open tiles</button>
+
+    <input id="folderInput" type="file" accept="image/png,image/jpeg,image/webp,image/tiff" multiple webkitdirectory hidden />
+    <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/tiff" multiple hidden />
+
+    <div class="control">
+      <label>
+        <span>Scale</span>
+        <strong id="scaleValue">25%</strong>
+      </label>
+      <input id="scaleSlider" type="range" min="5" max="100" step="1" value="25" />
+    </div>
+
+    <div class="control">
+      <label>
+        <span>Overlap X</span>
+        <strong id="overlapXValue">15%</strong>
+      </label>
+      <input id="overlapXSlider" type="range" min="0" max="60" step="1" value="15" />
+    </div>
+
+    <div class="control">
+      <label>
+        <span>Overlap Y</span>
+        <strong id="overlapYValue">15%</strong>
+      </label>
+      <input id="overlapYSlider" type="range" min="0" max="60" step="1" value="15" />
+    </div>
+
+    <label class="checkControl" title="Show tile x/y value in the lower-left corner of each tile">
+      <input id="labelsCheckbox" type="checkbox" />
+      <span>#</span>
+    </label>
+
+    <div class="status" id="status">
+      Select the whole tile folder for best results.<br>
+      <span class="small">Expected: *_tile_x0_y0.png / jpg / webp / tif</span>
+    </div>
+  </div>
+
+  <div class="main" id="scrollArea">
+    <div id="mosaic">
+      <div class="empty">No tiles loaded yet.</div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const openFolderBtn = document.getElementById('openFolderBtn');
+  const openFilesBtn = document.getElementById('openFilesBtn');
+  const folderInput = document.getElementById('folderInput');
+  const fileInput = document.getElementById('fileInput');
+  const scaleSlider = document.getElementById('scaleSlider');
+  const overlapXSlider = document.getElementById('overlapXSlider');
+  const overlapYSlider = document.getElementById('overlapYSlider');
+  const labelsCheckbox = document.getElementById('labelsCheckbox');
+  const scaleValue = document.getElementById('scaleValue');
+  const overlapXValue = document.getElementById('overlapXValue');
+  const overlapYValue = document.getElementById('overlapYValue');
+  const statusEl = document.getElementById('status');
+  const mosaic = document.getElementById('mosaic');
+
+  let tiles = [];
+  let tileW = 0;
+  let tileH = 0;
+  let xRanks = new Map();
+  let yRanks = new Map();
+
+  openFolderBtn.addEventListener('click', () => folderInput.click());
+  openFilesBtn.addEventListener('click', () => fileInput.click());
+
+  folderInput.addEventListener('change', async () => loadTiles([...folderInput.files]));
+  fileInput.addEventListener('change', async () => loadTiles([...fileInput.files]));
+
+  scaleSlider.addEventListener('input', render);
+  overlapXSlider.addEventListener('input', render);
+  overlapYSlider.addEventListener('input', render);
+
+  labelsCheckbox.addEventListener('change', () => {
+    document.body.classList.toggle('showLabels', labelsCheckbox.checked);
+  });
+
+  document.addEventListener('dragover', (e) => e.preventDefault());
+  document.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    await loadTiles([...e.dataTransfer.files].filter(f => f.type.startsWith('image/')));
+  });
+
+  function parseTileName(name) {
+    const base = name.split(/[\\/]/).pop();
+
+    const m = base.match(/_tile_x(-?\d+)_y(-?\d+)\.(png|jpg|jpeg|webp|tif|tiff)$/i);
+    if (!m) return null;
+
+    return {
+      x: Number(m[1]),
+      y: Number(m[2])
+    };
+  }
+
+  function naturalTileSort(a, b) {
+    if (a.gridY !== b.gridY) return a.gridY - b.gridY;
+    return a.gridX - b.gridX;
+  }
+
+  async function loadTiles(files) {
+    cleanupUrls();
+
+    const parsed = [];
+    const rejected = [];
+
+    for (const file of files) {
+      const pos = parseTileName(file.name);
+      if (!pos) {
+        rejected.push(file.name);
+        continue;
+      }
+
+      parsed.push({
+        file,
+        name: file.name,
+        gridX: pos.x,
+        gridY: pos.y,
+        url: URL.createObjectURL(file),
+        img: null,
+        w: 0,
+        h: 0
+      });
+    }
+
+    if (!parsed.length) {
+      tiles = [];
+      mosaic.innerHTML = '<div class="empty error">No valid tile filenames found.</div>';
+      statusEl.innerHTML = `No usable files selected.<br><span class="small">Expected: *_tile_x0_y0.png</span>`;
+      return;
+    }
+
+    parsed.sort(naturalTileSort);
+    tiles = parsed;
+
+    buildCoordinateRanks();
+
+    await Promise.all(tiles.map(loadImageForTile));
+
+    const loadedTiles = tiles.filter(t => t.img && t.w && t.h);
+    tileW = Math.max(...loadedTiles.map(t => t.w));
+    tileH = Math.max(...loadedTiles.map(t => t.h));
+
+    render(rejected);
+  }
+
+  function buildCoordinateRanks() {
+    const xs = [...new Set(tiles.map(t => t.gridX))].sort((a, b) => a - b);
+    const ys = [...new Set(tiles.map(t => t.gridY))].sort((a, b) => a - b);
+
+    xRanks = new Map(xs.map((v, i) => [v, i]));
+    yRanks = new Map(ys.map((v, i) => [v, i]));
+  }
+
+  function loadImageForTile(tile) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        tile.img = img;
+        tile.w = img.naturalWidth;
+        tile.h = img.naturalHeight;
+        resolve();
+      };
+      img.onerror = () => {
+        tile.img = null;
+        tile.w = 0;
+        tile.h = 0;
+        resolve();
+      };
+      img.src = tile.url;
+    });
+  }
+
+  function render(rejected = []) {
+    const scale = Number(scaleSlider.value) / 100;
+    const overlapX = Number(overlapXSlider.value) / 100;
+    const overlapY = Number(overlapYSlider.value) / 100;
+
+    scaleValue.textContent = `${scaleSlider.value}%`;
+    overlapXValue.textContent = `${overlapXSlider.value}%`;
+    overlapYValue.textContent = `${overlapYSlider.value}%`;
+
+    if (!tiles.length) return;
+
+    const validTiles = tiles.filter(t => t.img && t.w && t.h);
+    if (!validTiles.length) {
+      mosaic.innerHTML = '<div class="empty error">Tile names parsed, but no images loaded.</div>';
+      return;
+    }
+
+    const xs = [...xRanks.keys()].sort((a, b) => a - b);
+    const ys = [...yRanks.keys()].sort((a, b) => a - b);
+    const minX = xs[0], maxX = xs[xs.length - 1];
+    const minY = ys[0], maxY = ys[ys.length - 1];
+
+    const expectedCount = xs.length * ys.length;
+    const missingCount = expectedCount - new Set(validTiles.map(t => `${t.gridX},${t.gridY}`)).size;
+
+    const stepX = tileW * (1 - overlapX);
+    const stepY = tileH * (1 - overlapY);
+
+    mosaic.innerHTML = '';
+
+    let maxRight = 0;
+    let maxBottom = 0;
+
+    for (const tile of validTiles) {
+      const col = xRanks.get(tile.gridX);
+      const yRank = yRanks.get(tile.gridY);
+
+      // right -> up display:
+      // X grows left-to-right.
+      // Y grows upward, so screen row must be inverted.
+      const screenRow = (ys.length - 1) - yRank;
+
+      const wrap = document.createElement('div');
+      wrap.className = 'tileWrap';
+      wrap.title = `${tile.name}\nx=${tile.gridX}, y=${tile.gridY}\ncol=${col}, row=${screenRow}`;
+
+      // Later/right/up tiles sit above earlier tiles in the overlap.
+      wrap.style.zIndex = String((yRank * xs.length) + col);
+
+      const img = document.createElement('img');
+      img.className = 'tile';
+      img.src = tile.url;
+      img.alt = tile.name;
+
+      const label = document.createElement('div');
+      label.className = 'tileLabel';
+      label.textContent = `x${tile.gridX} y${tile.gridY}`;
+
+      const left = col * stepX * scale;
+      const top = screenRow * stepY * scale;
+      const width = tile.w * scale;
+      const height = tile.h * scale;
+
+      wrap.style.left = `${left}px`;
+      wrap.style.top = `${top}px`;
+      wrap.style.width = `${width}px`;
+      wrap.style.height = `${height}px`;
+
+      maxRight = Math.max(maxRight, left + width);
+      maxBottom = Math.max(maxBottom, top + height);
+
+      wrap.appendChild(img);
+      wrap.appendChild(label);
+      mosaic.appendChild(wrap);
+    }
+
+    mosaic.style.width = `${Math.ceil(maxRight)}px`;
+    mosaic.style.height = `${Math.ceil(maxBottom)}px`;
+
+    const rejectedMsg = rejected.length ? `, ${rejected.length} ignored` : '';
+    const missingMsg = missingCount > 0 ? `, ${missingCount} missing from full grid` : '';
+
+    statusEl.innerHTML =
+      `Loaded ${validTiles.length} tile(s)${rejectedMsg}${missingMsg}. Grid x${minX}..x${maxX}, y${minY}..y${maxY}.<br>` +
+      `<span class="small">${xs.length} columns × ${ys.length} rows = ${expectedCount} expected, tile ${tileW} × ${tileH}</span>`;
+  }
+
+  function cleanupUrls() {
+    for (const t of tiles) {
+      if (t.url) URL.revokeObjectURL(t.url);
+    }
+  }
+})();
+</script>
+</body>
+</html>
